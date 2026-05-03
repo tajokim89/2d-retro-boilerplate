@@ -262,27 +262,69 @@ export class GameScene implements Scene {
   // 추적자 자율 행동
   // ============================================================================
   private stepStalker(): void {
-    const ddx = this.playerX - this.stalkerX;
-    const ddy = this.playerY - this.stalkerY;
-    if (ddx === 0 && ddy === 0) return;
-    const dx = Math.sign(ddx);
-    const dy = Math.sign(ddy);
-    // 거리 큰 축 우선, 막히면 다른 축.
-    const tries: Array<[number, number]> =
-      Math.abs(ddx) >= Math.abs(ddy) ? [[dx, 0], [0, dy]] : [[0, dy], [dx, 0]];
-    for (const [mx, my] of tries) {
-      if (mx === 0 && my === 0) continue;
-      const nx = this.stalkerX + mx;
-      const ny = this.stalkerY + my;
-      if (this.isWalkable(nx, ny)) {
-        this.stalkerX = nx;
-        this.stalkerY = ny;
-        this.syncStalker();
-        break;
+    if (this.state === 'hidden') {
+      // 플레이어가 은신 → 시야를 잃었다고 판단. 무작위 배회.
+      this.wanderStalker();
+    } else {
+      // 평소: 플레이어 쪽으로 그리디.
+      const ddx = this.playerX - this.stalkerX;
+      const ddy = this.playerY - this.stalkerY;
+      if (ddx !== 0 || ddy !== 0) {
+        const dx = Math.sign(ddx);
+        const dy = Math.sign(ddy);
+        const tries: Array<[number, number]> =
+          Math.abs(ddx) >= Math.abs(ddy) ? [[dx, 0], [0, dy]] : [[0, dy], [dx, 0]];
+        for (const [mx, my] of tries) {
+          if (mx === 0 && my === 0) continue;
+          const nx = this.stalkerX + mx;
+          const ny = this.stalkerY + my;
+          if (this.canStalkerStep(nx, ny)) {
+            this.stalkerX = nx;
+            this.stalkerY = ny;
+            this.syncStalker();
+            break;
+          }
+        }
       }
     }
     this.evaluateContact();
     this.renderHud();
+  }
+
+  private wanderStalker(): void {
+    // 50% 정지 (가만히 듣고 있는 듯)
+    if (Math.random() < 0.5) return;
+    const dirs: Array<[number, number]> = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
+    // Fisher-Yates shuffle
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const a = dirs[i]!;
+      const b = dirs[j]!;
+      dirs[i] = b;
+      dirs[j] = a;
+    }
+    for (const [mx, my] of dirs) {
+      const nx = this.stalkerX + mx;
+      const ny = this.stalkerY + my;
+      if (this.canStalkerStep(nx, ny)) {
+        this.stalkerX = nx;
+        this.stalkerY = ny;
+        this.syncStalker();
+        return;
+      }
+    }
+  }
+
+  private canStalkerStep(x: number, y: number): boolean {
+    if (!this.isWalkable(x, y)) return false;
+    // 플레이어가 은신 중이면 그 타일을 점거하지 않는다 (사물함 안의 플레이어 위에 서지 않게)
+    if (this.state === 'hidden' && x === this.playerX && y === this.playerY) return false;
+    return true;
   }
 
   private evaluateContact(): void {
