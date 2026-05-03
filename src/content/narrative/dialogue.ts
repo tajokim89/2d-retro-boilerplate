@@ -1,10 +1,9 @@
-// 대사 트리. 호러 탐험 컨셉에선 직접 만남이 드물지만,
-// 라디오 너머 대화나 가끔의 인간 NPC 만남에 사용 가능.
-// 보일러플레이트엔 placeholder 1 노드.
+// 대사 트리. 호러 탐험에선 직접 만남이 드물지만,
+// 라디오 너머나 가끔의 만남에 사용.
 
 export interface DialogueChoice {
   text: string;
-  nextId: string | null; // null 이면 대사 종료
+  nextId: string | null;
 }
 
 export interface DialogueNode {
@@ -16,9 +15,21 @@ export interface DialogueNode {
 
 export const dialogueNodes: DialogueNode[] = [
   {
+    id: 'classroom-voice',
+    speaker: '교실 안의 목소리',
+    lines: [
+      '거기 누구야?',
+      '문 좀 열어줘. 깜빡 잠들었나봐.',
+    ],
+    choices: [
+      { text: '문을 연다.', nextId: null },
+      { text: '대답하지 않고 지나간다.', nextId: null },
+    ],
+  },
+  {
     id: 'placeholder',
     speaker: '???',
-    lines: ['여기에 대사를 넣으십시오.', '포크 후 src/content/narrative/dialogue.ts 편집.'],
-    choices: [{ text: '대답하지 않는다.', nextId: null }],
+    lines: ['여기에 자기 게임의 대사를 채워 넣으십시오.'],
+    choices: [{ text: '알겠다.', nextId: null }],
   },
 ];

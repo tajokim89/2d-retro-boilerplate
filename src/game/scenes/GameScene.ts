@@ -5,13 +5,15 @@
 //  - ctx.world : 픽셀 아트 (그리드/플레이어/추적자) — 정수배 스케일
 //  - ctx.ui    : HUD/타이틀/힌트/메시지 — 네이티브 해상도, 크리스피
 //
-// MVP placeholder: 실제 zone 로딩/추적자 AI/시야 시스템은 다음 단계.
+// 모든 시각 요소는 ctx.sprites 의 텍스처를 쓴다 — 자산이 없으면 procedural placeholder.
+// 진짜 아트는 public/assets/sprites/main.json+png 드롭하면 자동 덮어씀.
 
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Sprite, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
 import { FONT_BODY, FONT_MONO, COLOR, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/engine';
 import { chapters } from '@/content/narrative/chapters';
 import { zonesForChapter } from '@/content/zones';
+import { findStalker, findTile } from '@/content';
 import { MainMenuScene } from './MainMenuScene';
 import { EndingScene } from './EndingScene';
 
@@ -21,9 +23,9 @@ export interface GameSceneOptions {
 
 type State = 'safe' | 'spotted' | 'hidden';
 
-const COLS = 20;
-const ROWS = 12;
-const CELL = 14; // world 안의 가상 픽셀
+const COLS = 18;
+const ROWS = 11;
+const CELL = 16; // world 가상 픽셀 단위. 실제 텍스처가 16x16 이라 1:1.
 
 export class GameScene implements Scene {
   private worldRoot = new Container();
@@ -31,13 +33,13 @@ export class GameScene implements Scene {
   private ctx!: SceneContext;
   private playerX = 4;
   private playerY = 6;
-  private stalkerX = 16;
+  private stalkerX = 14;
   private stalkerY = 4;
   private state: State = 'safe';
   private flashlightOn = false;
-  private gridGfx!: Graphics;
-  private player!: Graphics;
-  private stalker!: Graphics;
+  private tileSprites: Sprite[] = [];
+  private player!: Sprite;
+  private stalker!: Sprite;
   // UI
   private hudBg!: Graphics;
   private chapterTitle!: Text;
@@ -58,18 +60,23 @@ export class GameScene implements Scene {
     ctx.world.addChild(this.worldRoot);
     ctx.ui.addChild(this.uiRoot);
 
-    // === World layer: 그리드 + 플레이어 + 추적자 ===
-    this.gridGfx = new Graphics();
-    this.drawGrid();
-    this.worldRoot.addChild(this.gridGfx);
+    // === World layer: 타일 그리드 + 캐릭터 ===
+    this.buildTileGrid();
 
-    this.stalker = new Graphics();
-    this.stalker.rect(0, 0, CELL - 2, CELL - 2).fill(0x9a2a2a);
+    const stalkerDef = firstZone?.stalkerSpawns[0]
+      ? findStalker(firstZone.stalkerSpawns[0].stalkerId)
+      : undefined;
+    const stalkerTex = stalkerDef ? ctx.sprites.get(stalkerDef.sprite) : null;
+    this.stalker = new Sprite(stalkerTex ?? undefined);
+    this.stalker.width = CELL;
+    this.stalker.height = CELL;
     this.worldRoot.addChild(this.stalker);
     this.syncStalker();
 
-    this.player = new Graphics();
-    this.player.rect(0, 0, CELL - 2, CELL - 2).fill(0xfff7d6);
+    const playerTex = ctx.sprites.get('player-down-0');
+    this.player = new Sprite(playerTex ?? undefined);
+    this.player.width = CELL;
+    this.player.height = CELL;
     this.worldRoot.addChild(this.player);
     this.syncPlayer();
 
@@ -164,6 +171,7 @@ export class GameScene implements Scene {
         const ny = clamp(this.playerY + intent.dy, 1, ROWS - 2);
         this.playerX = nx;
         this.playerY = ny;
+        this.swapPlayerSprite(intent.dx, intent.dy);
         this.syncPlayer();
         this.tickStalker();
         this.renderHud();
@@ -176,6 +184,14 @@ export class GameScene implements Scene {
 
   onResize(): void {
     this.layout();
+  }
+
+  private swapPlayerSprite(dx: number, dy: number): void {
+    let dir: 'down' | 'up' | 'left' | 'right' = 'down';
+    if (Math.abs(dx) >= Math.abs(dy)) dir = dx < 0 ? 'left' : 'right';
+    else dir = dy < 0 ? 'up' : 'down';
+    const tex = this.ctx.sprites.get(`player-${dir}-0`);
+    if (tex) this.player.texture = tex;
   }
 
   private tickStalker(): void {
@@ -192,7 +208,7 @@ export class GameScene implements Scene {
       this.message.text = '잡혔다. 구역 시작점으로 돌아간다. (placeholder)';
       this.playerX = 4;
       this.playerY = 6;
-      this.stalkerX = 16;
+      this.stalkerX = 14;
       this.stalkerY = 4;
       this.state = 'safe';
       this.syncPlayer();
@@ -228,14 +244,23 @@ export class GameScene implements Scene {
     };
   }
 
-  private drawGrid(): void {
+  private buildTileGrid(): void {
     const o = this.gridOrigin();
-    this.gridGfx.clear();
+    const wallDef = findTile('wall');
+    const floorDef = findTile('floor');
+    const wallTex = wallDef ? this.ctx.sprites.get(wallDef.sprite) : null;
+    const floorTex = floorDef ? this.ctx.sprites.get(floorDef.sprite) : null;
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const isWall = x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1;
-        const color = isWall ? 0x2a2f3a : 0x14161c;
-        this.gridGfx.rect(o.x + x * CELL, o.y + y * CELL, CELL - 1, CELL - 1).fill(color);
+        const tex = isWall ? wallTex : floorTex;
+        const sprite = new Sprite(tex ?? undefined);
+        sprite.width = CELL;
+        sprite.height = CELL;
+        sprite.x = o.x + x * CELL;
+        sprite.y = o.y + y * CELL;
+        this.worldRoot.addChild(sprite);
+        this.tileSprites.push(sprite);
       }
     }
   }
@@ -244,7 +269,6 @@ export class GameScene implements Scene {
     const w = this.ctx.app.screen.width;
     const h = this.ctx.app.screen.height;
 
-    // 상단/하단 HUD 띠
     this.hudBg.clear();
     this.hudBg.rect(0, 0, w, 56).fill({ color: COLOR.bgDeep, alpha: 0.85 });
     this.hudBg.rect(0, h - 72, w, 72).fill({ color: COLOR.bgDeep, alpha: 0.85 });

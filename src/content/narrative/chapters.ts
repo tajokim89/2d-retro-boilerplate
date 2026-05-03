@@ -1,5 +1,7 @@
 // 챕터 정의. GameScene 이 chapterId 로 검색.
 // 챕터 = 여러 구역(zone)의 묶음 + 진입/완료 텍스트.
+//
+// 데모: 학교 1층 빠져나가기 1챕터.
 
 export interface ChapterDef {
   id: string;
@@ -12,9 +14,9 @@ export interface ChapterDef {
 export const chapters: ChapterDef[] = [
   {
     id: 'ch1',
-    title: '챕터 1 — 작동 확인',
-    intro: '무기는 없다. 들키면 도망쳐라.',
-    outro: '챕터 1 종료. 여기에 다음 챕터를 추가하십시오.',
-    zoneIds: ['zone-ch1-1'],
+    title: '챕터 1 — 야간자율학습 이후',
+    intro: '복도는 비어 있다. 정문은 잠겼다. 1층을 빠져나갈 길을 찾는다.',
+    outro: '학교 밖 가로등이 다시 보인다. 챕터 1 끝.',
+    zoneIds: ['zone-school-1f'],
   },
 ];

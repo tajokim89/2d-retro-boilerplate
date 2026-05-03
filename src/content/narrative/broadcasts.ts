@@ -1,24 +1,32 @@
-// 방송/인터컴 — 라디오나 스피커에서 흘러나오는 음성 텍스트.
-// 'fixed' prop 인 라디오와 연동, 또는 zone.ambientSignals 에 등록되어 진입 시 자동 재생.
-// 새 방송 추가: 객체 push, props.ts 또는 zones.ts 와 id 매칭.
+// 방송/인터컴 — 라디오나 스피커에서 흘러나오는 음성.
+// 데모: 교내 방송실에서 흘러나오는 자동 안내. 늦은 시간이라 나올 리가 없는데 흘러나온다.
 
 export interface BroadcastEntry {
   id: string;
-  source: string;          // '라디오', '인터컴', '확성기', '?' 등
-  lines: string[];         // 한 줄씩 흘러나옴
-  loop?: boolean;          // 자동 반복 여부 (앰비언트)
+  source: string;
+  lines: string[];
+  loop?: boolean;
   unlocksCodex?: string;
 }
 
 export const broadcasts: BroadcastEntry[] = [
   {
+    id: 'bc-school-pa',
+    source: '교내 방송',
+    lines: [
+      '— 지지직 —',
+      '야간자율학습이 종료되었습니다. 학생들은 1층 정문으로 하교하시기 바랍니다.',
+      '오늘 야간자율학습 인원은… 39명입니다.',
+      '오늘 야간자율학습 인원은… 40명입니다.',
+      '오늘 야간자율학습 인원은… 41명입니다.',
+    ],
+    loop: false,
+    unlocksCodex: 'codex-shadow-line',
+  },
+  {
     id: 'bc-placeholder',
     source: '라디오',
-    lines: [
-      '... 지지직 ...',
-      '여기에 방송 텍스트를 채워 넣으십시오.',
-      '포크 후 src/content/narrative/broadcasts.ts 편집.',
-    ],
+    lines: ['— 지지직 —', '여기에 자기 게임의 방송 텍스트를 채워 넣으십시오.'],
   },
 ];
 

@@ -8,6 +8,7 @@
 import type { Container, Application } from 'pixi.js';
 import type { Input, Intent } from './input';
 import type { EventBus } from './events';
+import type { SpriteRegistry } from './assets';
 
 export interface SceneContext {
   app: Application;
@@ -15,6 +16,7 @@ export interface SceneContext {
   ui: Container;
   input: Input;
   events: EventBus;
+  sprites: SpriteRegistry;
   manager: SceneManager;
 }
 

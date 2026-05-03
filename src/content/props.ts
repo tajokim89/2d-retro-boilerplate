@@ -1,15 +1,13 @@
-// 소품 정의 (이전의 'items'). 호러 탐험 보일러플레이트엔 무기 없음.
-// 손전등/열쇠/메모/라디오/표지판 같은 환경적/서사적 도구.
-//
-// 새 소품 추가: 객체 push.
+// 소품 정의. 호러 탐험 — 무기 없음.
+// 데모: 학교 1층에서 마주칠 도구·환경.
 
 export type PropEffect =
-  | { kind: 'light'; radius: number; battery?: number }   // 손전등
-  | { kind: 'unlock'; doorId: string }                    // 열쇠
-  | { kind: 'broadcast'; broadcastId: string }            // 라디오/인터컴 — broadcasts.ts 참조
-  | { kind: 'document'; documentId: string }              // 메모/책/벽글 — documents.ts 참조
-  | { kind: 'sign'; signId: string }                      // 표지판 — signs.ts 참조
-  | { kind: 'tool'; action: string };                     // 일반 도구 — narrative event 트리거용
+  | { kind: 'light'; radius: number; battery?: number }
+  | { kind: 'unlock'; doorId: string }
+  | { kind: 'broadcast'; broadcastId: string }
+  | { kind: 'document'; documentId: string }
+  | { kind: 'sign'; signId: string }
+  | { kind: 'tool'; action: string };
 
 export type PropKind = 'pickup' | 'fixed';
 
@@ -17,7 +15,7 @@ export interface PropDef {
   id: string;
   name: string;
   sprite: string;
-  kind: PropKind;          // pickup: 인벤토리에 들어옴. fixed: 그 자리에서만 상호작용.
+  kind: PropKind;
   effect: PropEffect;
 }
 
@@ -30,31 +28,38 @@ export const props: PropDef[] = [
     effect: { kind: 'light', radius: 5, battery: 100 },
   },
   {
-    id: 'key',
-    name: '열쇠',
-    sprite: 'prop-key',
+    id: 'student-id',
+    name: '학생증',
+    sprite: 'prop-student-id',
     kind: 'pickup',
-    effect: { kind: 'unlock', doorId: 'door-placeholder' },
+    effect: { kind: 'unlock', doorId: 'door-staff' },
   },
   {
     id: 'note',
     name: '메모',
     sprite: 'prop-note',
     kind: 'fixed',
-    effect: { kind: 'document', documentId: 'doc-placeholder' },
+    effect: { kind: 'document', documentId: 'doc-class-leader-note' },
   },
   {
-    id: 'radio',
-    name: '라디오',
-    sprite: 'prop-radio',
+    id: 'blackboard',
+    name: '칠판 낙서',
+    sprite: 'prop-blackboard',
     kind: 'fixed',
-    effect: { kind: 'broadcast', broadcastId: 'bc-placeholder' },
+    effect: { kind: 'document', documentId: 'doc-blackboard' },
+  },
+  {
+    id: 'pa-radio',
+    name: '교내 방송 수신기',
+    sprite: 'prop-pa-radio',
+    kind: 'fixed',
+    effect: { kind: 'broadcast', broadcastId: 'bc-school-pa' },
   },
   {
     id: 'sign',
     name: '표지판',
     sprite: 'prop-sign',
     kind: 'fixed',
-    effect: { kind: 'sign', signId: 'sign-placeholder' },
+    effect: { kind: 'sign', signId: 'sign-emergency-exit' },
   },
 ];

@@ -32,3 +32,5 @@ export type { SaveMeta, SaveRecord } from './save';
 
 export { Settings } from './settings';
 export type { SettingsState } from './settings';
+
+export { SpriteRegistry, hashColor } from './assets';
