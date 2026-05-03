@@ -66,6 +66,20 @@ export class SceneManager {
     this.attachIntent();
   }
 
+  /**
+   * 스택을 전부 비우고 단일 씬으로 교체. Load 같은 "현재 흐름 다 버리고 새로" 케이스.
+   */
+  async replaceAll(scene: Scene): Promise<void> {
+    this.detachIntent();
+    while (this.stack.length > 0) {
+      const top = this.stack.pop();
+      if (top) await top.exit();
+    }
+    this.stack.push(scene);
+    await scene.enter(this.fullCtx());
+    this.attachIntent();
+  }
+
   update(deltaMs: number): void {
     this.current()?.update?.(deltaMs);
   }

@@ -53,6 +53,32 @@ export class NarrativeSystem {
     return this.flags[id] === true;
   }
 
+  serialize(): {
+    facts: string[];
+    flags: Record<string, boolean>;
+    fired: string[];
+    unlockedCodex: string[];
+  } {
+    return {
+      facts: [...this.facts],
+      flags: { ...this.flags },
+      fired: [...this.fired],
+      unlockedCodex: [...this.unlockedCodex],
+    };
+  }
+
+  restore(snapshot: {
+    facts: string[];
+    flags: Record<string, boolean>;
+    fired: string[];
+    unlockedCodex: string[];
+  }): void {
+    this.facts = new Set(snapshot.facts);
+    this.flags = { ...snapshot.flags };
+    this.fired = new Set(snapshot.fired);
+    this.unlockedCodex = new Set(snapshot.unlockedCodex);
+  }
+
   // 외부에서 직접 사실을 등록할 수도 있게 노출 (예: enterTile, enterZone, turnGte 같은 GameScene 컨텍스트).
   recordFact(fact: string): void {
     if (this.facts.has(fact)) return;

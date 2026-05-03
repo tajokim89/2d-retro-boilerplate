@@ -35,12 +35,16 @@ import { findSign } from '@/content/narrative/signs';
 import { codexEntries } from '@/content/narrative/codex';
 import { NarrativeSystem } from '../systems/narrative';
 import { FovSystem } from '../systems/fov';
-import { MainMenuScene } from './MainMenuScene';
 import { EndingScene } from './EndingScene';
 import { ReaderScene } from './ReaderScene';
+import { PauseScene } from './PauseScene';
+import { CodexScene } from './CodexScene';
+import { InventoryScene } from './InventoryScene';
+import type { GameSnapshot } from '../state';
 
 export interface GameSceneOptions {
   chapterId: string;
+  snapshot?: GameSnapshot;
 }
 
 type State = 'safe' | 'spotted' | 'hidden';
@@ -89,6 +93,8 @@ export class GameScene implements Scene {
   private narrative!: NarrativeSystem;
   private endingUnsub: (() => void) | null = null;
   private codexUnsub: (() => void) | null = null;
+  private playerFacing: 'down' | 'up' | 'left' | 'right' = 'down';
+  private currentZoneId = '';
   // sprites
   private player!: Sprite;
   private stalker!: Sprite;
@@ -128,6 +134,7 @@ export class GameScene implements Scene {
       this.stalkerX = firstSpawn.x;
       this.stalkerY = firstSpawn.y;
     }
+    this.currentZoneId = zone?.id ?? '?';
 
     // === Systems ===
     this.fov = new FovSystem(this.cols, this.rows, (x, y) => {
@@ -136,7 +143,7 @@ export class GameScene implements Scene {
       return def ? def.transparent : false;
     });
     this.narrative = new NarrativeSystem(ctx.events);
-    this.narrative.recordFact(`enterZone:${zone?.id ?? '?'}`);
+    this.narrative.recordFact(`enterZone:${this.currentZoneId}`);
 
     // === World sprites ===
     this.buildTileSprites();
@@ -169,6 +176,11 @@ export class GameScene implements Scene {
       this.message.text = `[코덱스] '${entry?.title ?? id}' 잠금해제.`;
     });
 
+    // === Snapshot 복원 (있으면 위 기본값을 덮어씀) ===
+    if (this.options.snapshot) {
+      this.applySnapshot(this.options.snapshot);
+    }
+
     // === First frame ===
     this.recomputeFov();
     this.syncPlayer();
@@ -176,7 +188,11 @@ export class GameScene implements Scene {
     this.applyVisibility();
     this.layout();
     this.renderHud();
-    ctx.events.emit('message', { text: this.chapter.intro, tone: 'warn' });
+    if (!this.options.snapshot) {
+      ctx.events.emit('message', { text: this.chapter.intro, tone: 'warn' });
+    } else {
+      this.message.text = '저장된 진행 상황을 불러왔다.';
+    }
   }
 
   exit(): void {
@@ -203,7 +219,10 @@ export class GameScene implements Scene {
     if (this.endingTriggered) return;
     switch (intent.kind) {
       case 'cancel':
-        void this.ctx.manager.replace(new MainMenuScene());
+      case 'menu':
+        void this.ctx.manager.push(
+          new PauseScene({ snapshotProvider: () => this.serialize() }),
+        );
         return;
       case 'descend':
         return this.tryExit();
@@ -220,17 +239,13 @@ export class GameScene implements Scene {
       case 'pickup':
         return this.tryInteract();
       case 'inventory':
-        this.message.text = this.inventory.size === 0
-          ? '인벤토리는 비어 있다.'
-          : `소지품: ${[...this.inventory].map((id) => findProp(id)?.name ?? id).join(', ')}`;
+        void this.ctx.manager.push(new InventoryScene({ itemIds: [...this.inventory] }));
         return;
-      case 'codex': {
-        const unlocked = this.narrative.getUnlockedCodex();
-        this.message.text = unlocked.length === 0
-          ? '아직 잠금해제된 코덱스가 없다.'
-          : `코덱스: ${unlocked.map((id) => codexEntries.find((c) => c.id === id)?.title ?? id).join(', ')}`;
+      case 'codex':
+        void this.ctx.manager.push(
+          new CodexScene({ unlockedIds: this.narrative.getUnlockedCodex() }),
+        );
         return;
-      }
       case 'move':
         return this.tryMove(intent.dx, intent.dy);
       default:
@@ -580,8 +595,50 @@ export class GameScene implements Scene {
     let dir: 'down' | 'up' | 'left' | 'right' = 'down';
     if (Math.abs(dx) >= Math.abs(dy)) dir = dx < 0 ? 'left' : dx > 0 ? 'right' : 'down';
     else dir = dy < 0 ? 'up' : 'down';
+    this.playerFacing = dir;
     const tex = this.ctx.sprites.get(`player-${dir}-0`);
     if (tex) this.player.texture = tex;
+  }
+
+  // ============================================================================
+  // Snapshot — Save/Load 용
+  // ============================================================================
+  serialize(): GameSnapshot {
+    return {
+      version: 1,
+      chapterId: this.chapter.id,
+      zoneId: this.currentZoneId,
+      player: { x: this.playerX, y: this.playerY, facing: this.playerFacing },
+      stalker: { id: this.stalkerId, x: this.stalkerX, y: this.stalkerY },
+      state: this.state,
+      flashlightOn: this.flashlightOn,
+      inventory: [...this.inventory],
+      narrative: this.narrative.serialize(),
+      fov: this.fov.serialize(),
+      savedAtIso: new Date().toISOString(),
+      label: `${this.chapter.title}`,
+    };
+  }
+
+  private applySnapshot(s: GameSnapshot): void {
+    this.playerX = s.player.x;
+    this.playerY = s.player.y;
+    this.playerFacing = s.player.facing;
+    const tex = this.ctx.sprites.get(`player-${this.playerFacing}-0`);
+    if (tex) this.player.texture = tex;
+    this.stalkerId = s.stalker.id;
+    this.stalkerX = s.stalker.x;
+    this.stalkerY = s.stalker.y;
+    this.state = s.state;
+    this.flashlightOn = s.flashlightOn;
+    // 인벤토리 복원 + 그 위치의 맵 위 sprite 제거
+    this.inventory = new Set(s.inventory);
+    for (const id of s.inventory) {
+      const inst = this.propsOnMap.find((p) => p.id === id);
+      if (inst) this.removePropFromMap(inst);
+    }
+    this.narrative.restore(s.narrative);
+    this.fov.restore(s.fov);
   }
 
   private syncPlayer(): void {

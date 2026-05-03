@@ -7,6 +7,8 @@ import { FONT_BODY, COLOR, hasAnySave } from '@/engine';
 import { Menu } from '../ui/menu';
 import { TutorialScene } from './TutorialScene';
 import { SettingsScene } from './SettingsScene';
+import { SaveSlotScene } from './SaveSlotScene';
+import { GameScene } from './GameScene';
 
 export class MainMenuScene implements Scene {
   private root = new Container();
@@ -82,7 +84,16 @@ export class MainMenuScene implements Scene {
         void this.ctx.manager.replace(new TutorialScene());
         break;
       case 'load':
-        void this.ctx.manager.replace(new TutorialScene());
+        void this.ctx.manager.push(
+          new SaveSlotScene({
+            mode: 'load',
+            onLoad: (snapshot) => {
+              void this.ctx.manager.replaceAll(
+                new GameScene({ chapterId: snapshot.chapterId, snapshot }),
+              );
+            },
+          }),
+        );
         break;
       case 'settings':
         void this.ctx.manager.push(new SettingsScene());

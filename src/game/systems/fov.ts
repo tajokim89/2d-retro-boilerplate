@@ -47,6 +47,14 @@ export class FovSystem {
     this.visible.clear();
     this.explored.clear();
   }
+
+  serialize(): { explored: string[] } {
+    return { explored: [...this.explored] };
+  }
+
+  restore(snapshot: { explored: string[] }): void {
+    this.explored = new Set(snapshot.explored);
+  }
 }
 
 function key(x: number, y: number): string {
