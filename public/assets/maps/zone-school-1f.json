@@ -28,6 +28,14 @@
   ],
   "spawns": {
     "player": { "x": 2, "y": 1 },
-    "stalkers": [{ "id": "late-pupil", "x": 15, "y": 1 }]
+    "stalkers": [{ "id": "late-pupil", "x": 15, "y": 1 }],
+    "props": [
+      { "id": "flashlight", "x": 2, "y": 9 },
+      { "id": "note",        "x": 5, "y": 6 },
+      { "id": "blackboard",  "x": 8, "y": 4 },
+      { "id": "pa-radio",    "x": 12, "y": 1 },
+      { "id": "sign",        "x": 16, "y": 9 },
+      { "id": "student-id",  "x": 10, "y": 6 }
+    ]
   }
 }

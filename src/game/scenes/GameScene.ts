@@ -2,25 +2,42 @@
 // 호러 탐험 보일러플레이트 — 전투 없음. 회피·은신·탐색·탈출.
 //
 // 두 레이어:
-//   ctx.world : 픽셀 아트 (타일/플레이어/추적자) — 정수배 스케일
+//   ctx.world : 픽셀 아트 (타일/소품/플레이어/추적자) — 정수배 스케일
 //   ctx.ui    : HUD/타이틀/힌트/메시지 — 네이티브 해상도, 크리스피
 //
-// 데모 흐름:
-//   1) zone 의 authoredMap JSON 을 fetch → 셀 배열 구성 (벽/사물함/책상밑/계단/비상구/문/바닥)
-//   2) 각 셀에 sprite registry 텍스처로 Sprite 배치
-//   3) 플레이어는 입력 1회 = 1칸. 벽 막힘. 은신은 hidesPlayer 타일에서만.
-//   4) 추적자는 자율 — PIXI ticker 의 deltaMS 누산, 700ms 마다 그리디 1칸 (벽 회피).
-//   5) 비상구('exit') 또는 계단('stairs-down') 위에서 '>' 누르면 다음 단계.
-//   6) 거리 ≤ 1 + 은신 X → caught → 미귀가 엔딩.
+// 시스템:
+//   - FOV : ROT.js PreciseShadowcasting. 플레이어 시야로 타일·추적자·소품 가시성 결정.
+//   - Narrative : content/narrative/events.ts 의 데이터 이벤트 런타임. 사실 등록 → 효과 emit.
+//   - Pickup/Reader : 소품 위에서 'e'/'g' → 인벤토리 추가 또는 ReaderScene push.
+//
+// 흐름:
+//   1) zone JSON fetch → cells / spawns
+//   2) tileSprites/propSprites/player/stalker 배치
+//   3) FOV 초기 계산
+//   4) Player 입력 1회 → 이동 / 상호작용 / 은신 / 손전등 / 출구 → 후속 이벤트
+//   5) 추적자 자율 (ticker accum 700ms) → wander when hidden / chase otherwise
+//   6) 잡힘 → caught 엔딩, 탈출 → escape 엔딩
 
 import { Container, Graphics, Sprite, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
 import { FONT_BODY, FONT_MONO, COLOR, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/engine';
 import { chapters } from '@/content/narrative/chapters';
 import { zonesForChapter } from '@/content/zones';
-import { findStalker, findTile } from '@/content';
+import {
+  findStalker,
+  findTile,
+  findProp,
+} from '@/content';
+import type { PropDef } from '@/content/props';
+import { findDocument } from '@/content/narrative/documents';
+import { findBroadcast } from '@/content/narrative/broadcasts';
+import { findSign } from '@/content/narrative/signs';
+import { codexEntries } from '@/content/narrative/codex';
+import { NarrativeSystem } from '../systems/narrative';
+import { FovSystem } from '../systems/fov';
 import { MainMenuScene } from './MainMenuScene';
 import { EndingScene } from './EndingScene';
+import { ReaderScene } from './ReaderScene';
 
 export interface GameSceneOptions {
   chapterId: string;
@@ -30,14 +47,24 @@ type State = 'safe' | 'spotted' | 'hidden';
 
 const CELL = 16;
 const STALKER_TICK_MS = 700;
-const DETECT_RANGE = 4; // 은신 X 일 때 거리 ≤ 4 면 spotted
-const CATCH_RANGE = 1;  // 거리 ≤ 1 면 catch
+const DETECT_RANGE = 4;
+const CATCH_RANGE = 1;
+const FOV_RADIUS_BASE = 4;
+const FOV_RADIUS_FLASHLIGHT = 7;
+
+interface PropInstance {
+  id: string;
+  x: number;
+  y: number;
+  sprite: Sprite;
+}
 
 interface MapData {
-  cells: string[][]; // [y][x] = tile id
+  cells: string[][];
   spawns: {
     player: { x: number; y: number };
     stalkers: Array<{ id: string; x: number; y: number }>;
+    props?: Array<{ id: string; x: number; y: number }>;
   };
 }
 
@@ -55,6 +82,13 @@ export class GameScene implements Scene {
   private flashlightOn = false;
   private stalkerAccumMs = 0;
   private endingTriggered = false;
+  private inventory = new Set<string>();
+  private propsOnMap: PropInstance[] = [];
+  private tileSprites: Sprite[][] = [];
+  private fov!: FovSystem;
+  private narrative!: NarrativeSystem;
+  private endingUnsub: (() => void) | null = null;
+  private codexUnsub: (() => void) | null = null;
   // sprites
   private player!: Sprite;
   private stalker!: Sprite;
@@ -64,6 +98,7 @@ export class GameScene implements Scene {
   private zoneName!: Text;
   private stateText!: Text;
   private flashlightText!: Text;
+  private inventoryText!: Text;
   private hint!: Text;
   private message!: Text;
   private chapter = chapters[0]!;
@@ -78,25 +113,34 @@ export class GameScene implements Scene {
     ctx.world.addChild(this.worldRoot);
     ctx.ui.addChild(this.uiRoot);
 
-    // === World: 맵 로드 ===
+    // === Map ===
     let mapData: MapData | null = null;
     if (zone?.generator === 'authored' && zone.authoredMap) {
       mapData = await loadAuthoredMap(zone.authoredMap);
     }
-    if (!mapData) {
-      mapData = makeFallbackRoom();
-    }
+    if (!mapData) mapData = makeFallbackRoom();
     this.cells = mapData.cells;
     this.playerX = mapData.spawns.player.x;
     this.playerY = mapData.spawns.player.y;
-    const firstStalkerSpawn = mapData.spawns.stalkers[0];
-    if (firstStalkerSpawn) {
-      this.stalkerId = firstStalkerSpawn.id;
-      this.stalkerX = firstStalkerSpawn.x;
-      this.stalkerY = firstStalkerSpawn.y;
+    const firstSpawn = mapData.spawns.stalkers[0];
+    if (firstSpawn) {
+      this.stalkerId = firstSpawn.id;
+      this.stalkerX = firstSpawn.x;
+      this.stalkerY = firstSpawn.y;
     }
 
+    // === Systems ===
+    this.fov = new FovSystem(this.cols, this.rows, (x, y) => {
+      const id = this.tileAt(x, y);
+      const def = findTile(id);
+      return def ? def.transparent : false;
+    });
+    this.narrative = new NarrativeSystem(ctx.events);
+    this.narrative.recordFact(`enterZone:${zone?.id ?? '?'}`);
+
+    // === World sprites ===
     this.buildTileSprites();
+    this.buildPropSprites(mapData.spawns.props ?? []);
 
     const stalkerDef = findStalker(this.stalkerId);
     const stalkerTex = stalkerDef ? ctx.sprites.get(stalkerDef.sprite) : null;
@@ -104,62 +148,41 @@ export class GameScene implements Scene {
     this.stalker.width = CELL;
     this.stalker.height = CELL;
     this.worldRoot.addChild(this.stalker);
-    this.syncStalker();
 
     const playerTex = ctx.sprites.get('player-down-0');
     this.player = new Sprite(playerTex ?? undefined);
     this.player.width = CELL;
     this.player.height = CELL;
     this.worldRoot.addChild(this.player);
-    this.syncPlayer();
 
     // === UI ===
-    this.hudBg = new Graphics();
-    this.uiRoot.addChild(this.hudBg);
+    this.buildHud(zone?.name ?? '— 구역 미정 —');
 
-    this.chapterTitle = new Text({
-      text: this.chapter.title,
-      style: { fill: COLOR.accent, fontSize: 18, fontFamily: FONT_BODY, fontWeight: '600' },
+    // === Listeners (narrative → scene) ===
+    this.endingUnsub = ctx.events.on('ending', ({ id }) => {
+      if (this.endingTriggered) return;
+      this.endingTriggered = true;
+      void this.ctx.manager.replace(new EndingScene({ endingId: id }));
     });
-    this.uiRoot.addChild(this.chapterTitle);
-
-    this.zoneName = new Text({
-      text: zone ? zone.name : '— 구역 미정 —',
-      style: { fill: COLOR.fgMuted, fontSize: 13, fontFamily: FONT_BODY },
+    this.codexUnsub = ctx.events.on('codexUnlocked', ({ id }) => {
+      const entry = codexEntries.find((c) => c.id === id);
+      this.message.text = `[코덱스] '${entry?.title ?? id}' 잠금해제.`;
     });
-    this.uiRoot.addChild(this.zoneName);
 
-    this.stateText = new Text({
-      text: '',
-      style: { fill: COLOR.fg, fontSize: 14, fontFamily: FONT_MONO, fontWeight: '600' },
-    });
-    this.uiRoot.addChild(this.stateText);
-
-    this.flashlightText = new Text({
-      text: '',
-      style: { fill: COLOR.fgMuted, fontSize: 14, fontFamily: FONT_MONO },
-    });
-    this.uiRoot.addChild(this.flashlightText);
-
-    this.hint = new Text({
-      text: '↑↓←→ 이동   c 은신   f 손전등   g 줍기   e 상호작용   >  탈출   Esc 메뉴',
-      style: { fill: COLOR.fgDim, fontSize: 12, fontFamily: FONT_BODY },
-    });
-    this.hint.anchor.set(1, 0);
-    this.uiRoot.addChild(this.hint);
-
-    this.message = new Text({
-      text: this.chapter.intro,
-      style: { fill: COLOR.warn, fontSize: 14, fontFamily: FONT_BODY, fontStyle: 'italic' },
-    });
-    this.uiRoot.addChild(this.message);
-
+    // === First frame ===
+    this.recomputeFov();
+    this.syncPlayer();
+    this.syncStalker();
+    this.applyVisibility();
     this.layout();
     this.renderHud();
     ctx.events.emit('message', { text: this.chapter.intro, tone: 'warn' });
   }
 
   exit(): void {
+    this.endingUnsub?.();
+    this.codexUnsub?.();
+    this.narrative.destroy();
     this.ctx.world.removeChild(this.worldRoot);
     this.ctx.ui.removeChild(this.uiRoot);
     this.worldRoot.destroy({ children: true });
@@ -182,73 +205,34 @@ export class GameScene implements Scene {
       case 'cancel':
         void this.ctx.manager.replace(new MainMenuScene());
         return;
-      case 'descend': {
-        const here = this.tileAt(this.playerX, this.playerY);
-        if (here === 'exit') {
-          this.endingTriggered = true;
-          this.ctx.events.emit('zoneExit', { fromZone: 'zone-school-1f', toZone: null, mode: 'escape' });
-          void this.ctx.manager.replace(new EndingScene({ endingId: 'placeholder' }));
-        } else if (here === 'stairs-down') {
-          this.endingTriggered = true;
-          this.ctx.events.emit('zoneExit', { fromZone: 'zone-school-1f', toZone: null, mode: 'descend' });
-          void this.ctx.manager.replace(new EndingScene({ endingId: 'placeholder' }));
-        } else {
-          this.message.text = '여기는 출구가 아니다.';
-        }
-        return;
-      }
-      case 'hide': {
-        if (this.state === 'hidden') {
-          this.state = 'safe';
-          this.ctx.events.emit('hideExit', { entity: 0 });
-          this.message.text = '몸을 일으킨다.';
-        } else {
-          const here = this.tileAt(this.playerX, this.playerY);
-          const tileDef = findTile(here);
-          if (tileDef?.hidesPlayer) {
-            this.state = 'hidden';
-            this.ctx.events.emit('hideEnter', { entity: 0, tile: here });
-            this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
-          } else {
-            this.message.text = '여기엔 숨을 곳이 없다.';
-          }
-        }
-        this.renderHud();
-        this.syncPlayer();
-        return;
-      }
+      case 'descend':
+        return this.tryExit();
+      case 'hide':
+        return this.tryHide();
       case 'use':
         this.flashlightOn = !this.flashlightOn;
-        this.renderHud();
         this.message.text = this.flashlightOn ? '손전등을 켰다.' : '손전등을 껐다.';
+        this.recomputeFov();
+        this.applyVisibility();
+        this.renderHud();
         return;
       case 'interact':
-      case 'pickup': {
-        const here = this.tileAt(this.playerX, this.playerY);
-        if (here === 'locker') this.message.text = '사물함 안쪽이 들여다보인다. c 로 숨을 수 있다.';
-        else if (here === 'desk-under') this.message.text = '책상 밑 어둠. c 로 숨을 수 있다.';
-        else if (here === 'door') this.message.text = '잠겨 있지 않다.';
-        else this.message.text = '주변에 상호작용할 대상이 없다.';
+      case 'pickup':
+        return this.tryInteract();
+      case 'inventory':
+        this.message.text = this.inventory.size === 0
+          ? '인벤토리는 비어 있다.'
+          : `소지품: ${[...this.inventory].map((id) => findProp(id)?.name ?? id).join(', ')}`;
+        return;
+      case 'codex': {
+        const unlocked = this.narrative.getUnlockedCodex();
+        this.message.text = unlocked.length === 0
+          ? '아직 잠금해제된 코덱스가 없다.'
+          : `코덱스: ${unlocked.map((id) => codexEntries.find((c) => c.id === id)?.title ?? id).join(', ')}`;
         return;
       }
-      case 'move': {
-        if (this.state === 'hidden') {
-          this.state = 'safe';
-          this.ctx.events.emit('hideExit', { entity: 0 });
-        }
-        const nx = this.playerX + intent.dx;
-        const ny = this.playerY + intent.dy;
-        if (this.isWalkable(nx, ny)) {
-          this.playerX = nx;
-          this.playerY = ny;
-          this.swapPlayerSprite(intent.dx, intent.dy);
-          this.syncPlayer();
-          this.maybeAnnounceTile(nx, ny);
-        }
-        this.evaluateContact();
-        this.renderHud();
-        return;
-      }
+      case 'move':
+        return this.tryMove(intent.dx, intent.dy);
       default:
         return;
     }
@@ -259,14 +243,114 @@ export class GameScene implements Scene {
   }
 
   // ============================================================================
-  // 추적자 자율 행동
+  // Player actions
+  // ============================================================================
+  private tryMove(dx: number, dy: number): void {
+    if (this.state === 'hidden') {
+      this.state = 'safe';
+      this.ctx.events.emit('hideExit', { entity: 0 });
+    }
+    const nx = this.playerX + dx;
+    const ny = this.playerY + dy;
+    if (!this.isWalkable(nx, ny)) {
+      this.evaluateContact();
+      this.renderHud();
+      return;
+    }
+    this.playerX = nx;
+    this.playerY = ny;
+    this.swapPlayerSprite(dx, dy);
+    this.recomputeFov();
+    this.syncPlayer();
+    this.applyVisibility();
+    this.maybeAnnounceTile(nx, ny);
+    this.evaluateContact();
+    this.renderHud();
+  }
+
+  private tryHide(): void {
+    if (this.state === 'hidden') {
+      this.state = 'safe';
+      this.ctx.events.emit('hideExit', { entity: 0 });
+      this.message.text = '몸을 일으킨다.';
+      this.syncPlayer();
+      this.renderHud();
+      return;
+    }
+    const here = this.tileAt(this.playerX, this.playerY);
+    const tileDef = findTile(here);
+    if (tileDef?.hidesPlayer) {
+      this.state = 'hidden';
+      this.ctx.events.emit('hideEnter', { entity: 0, tile: here });
+      this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
+    } else {
+      this.message.text = '여기엔 숨을 곳이 없다.';
+    }
+    this.syncPlayer();
+    this.renderHud();
+  }
+
+  private tryExit(): void {
+    const here = this.tileAt(this.playerX, this.playerY);
+    if (here === 'exit') {
+      this.endingTriggered = true;
+      this.ctx.events.emit('zoneExit', { fromZone: 'zone-school-1f', toZone: null, mode: 'escape' });
+      void this.ctx.manager.replace(new EndingScene({ endingId: 'placeholder' }));
+      return;
+    }
+    if (here === 'stairs-down') {
+      this.endingTriggered = true;
+      this.ctx.events.emit('zoneExit', { fromZone: 'zone-school-1f', toZone: null, mode: 'descend' });
+      void this.ctx.manager.replace(new EndingScene({ endingId: 'placeholder' }));
+      return;
+    }
+    this.message.text = '여기는 출구가 아니다.';
+  }
+
+  private tryInteract(): void {
+    const prop = this.propAt(this.playerX, this.playerY);
+    if (!prop) {
+      this.message.text = '주변에 상호작용할 대상이 없다.';
+      return;
+    }
+    const def = findProp(prop.id);
+    if (!def) return;
+
+    if (def.kind === 'pickup') {
+      this.inventory.add(prop.id);
+      this.removePropFromMap(prop);
+      this.message.text = `${def.name} 을(를) 주웠다.`;
+      this.ctx.events.emit('pickup', { entity: 0, prop: prop.id });
+      this.renderHud();
+      return;
+    }
+    // fixed prop → 리더 열기
+    this.openReaderForProp(def);
+  }
+
+  private openReaderForProp(def: PropDef): void {
+    const eff = def.effect;
+    if (eff.kind === 'document') {
+      const entry = findDocument(eff.documentId);
+      if (entry) void this.ctx.manager.push(new ReaderScene({ kind: 'document', entry }));
+    } else if (eff.kind === 'broadcast') {
+      const entry = findBroadcast(eff.broadcastId);
+      if (entry) void this.ctx.manager.push(new ReaderScene({ kind: 'broadcast', entry }));
+    } else if (eff.kind === 'sign') {
+      const entry = findSign(eff.signId);
+      if (entry) void this.ctx.manager.push(new ReaderScene({ kind: 'sign', entry }));
+    } else {
+      this.message.text = '읽을 수 있는 게 아니다.';
+    }
+  }
+
+  // ============================================================================
+  // Stalker
   // ============================================================================
   private stepStalker(): void {
     if (this.state === 'hidden') {
-      // 플레이어가 은신 → 시야를 잃었다고 판단. 무작위 배회.
       this.wanderStalker();
     } else {
-      // 평소: 플레이어 쪽으로 그리디.
       const ddx = this.playerX - this.stalkerX;
       const ddy = this.playerY - this.stalkerY;
       if (ddx !== 0 || ddy !== 0) {
@@ -281,18 +365,18 @@ export class GameScene implements Scene {
           if (this.canStalkerStep(nx, ny)) {
             this.stalkerX = nx;
             this.stalkerY = ny;
-            this.syncStalker();
             break;
           }
         }
       }
     }
+    this.syncStalker();
+    this.applyVisibility();
     this.evaluateContact();
     this.renderHud();
   }
 
   private wanderStalker(): void {
-    // 50% 정지 (가만히 듣고 있는 듯)
     if (Math.random() < 0.5) return;
     const dirs: Array<[number, number]> = [
       [-1, 0],
@@ -300,7 +384,6 @@ export class GameScene implements Scene {
       [0, -1],
       [0, 1],
     ];
-    // Fisher-Yates shuffle
     for (let i = dirs.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const a = dirs[i]!;
@@ -314,7 +397,6 @@ export class GameScene implements Scene {
       if (this.canStalkerStep(nx, ny)) {
         this.stalkerX = nx;
         this.stalkerY = ny;
-        this.syncStalker();
         return;
       }
     }
@@ -322,22 +404,23 @@ export class GameScene implements Scene {
 
   private canStalkerStep(x: number, y: number): boolean {
     if (!this.isWalkable(x, y)) return false;
-    // 플레이어가 은신 중이면 그 타일을 점거하지 않는다 (사물함 안의 플레이어 위에 서지 않게)
     if (this.state === 'hidden' && x === this.playerX && y === this.playerY) return false;
     return true;
   }
 
   private evaluateContact(): void {
+    if (this.state === 'hidden') return;
     const distance = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
-    if (this.state === 'hidden') {
-      // 은신 중에는 detect / catch 모두 차단.
-      return;
-    }
     if (distance <= CATCH_RANGE) {
       this.endingTriggered = true;
       this.ctx.events.emit('caught', { stalker: 1, player: 0, effect: 'death' });
-      this.message.text = '잡혔다.';
-      void this.ctx.manager.replace(new EndingScene({ endingId: 'caught' }));
+      // narrative 가 caught → goEnding('caught') 발사 → ending listener 가 EndingScene 으로 교체.
+      // 만약 narrative event 가 없거나 매치 안 되면 fallback 으로 직접 전환.
+      setTimeout(() => {
+        if (this.endingTriggered && this.ctx.manager.current() === this) {
+          void this.ctx.manager.replace(new EndingScene({ endingId: 'caught' }));
+        }
+      }, 0);
       return;
     }
     if (distance <= DETECT_RANGE) {
@@ -354,7 +437,47 @@ export class GameScene implements Scene {
   }
 
   // ============================================================================
-  // 맵 / 셀 조회
+  // FOV / Visibility
+  // ============================================================================
+  private recomputeFov(): void {
+    const radius = this.flashlightOn ? FOV_RADIUS_FLASHLIGHT : FOV_RADIUS_BASE;
+    this.fov.recompute(this.playerX, this.playerY, radius);
+  }
+
+  private applyVisibility(): void {
+    // 타일
+    for (let y = 0; y < this.rows; y++) {
+      const row = this.tileSprites[y];
+      if (!row) continue;
+      for (let x = 0; x < this.cols; x++) {
+        const sprite = row[x];
+        if (!sprite) continue;
+        const visible = this.fov.isVisible(x, y);
+        const explored = this.fov.isExplored(x, y);
+        if (visible) {
+          sprite.visible = true;
+          sprite.alpha = 1;
+          sprite.tint = 0xffffff;
+        } else if (explored) {
+          sprite.visible = true;
+          sprite.alpha = 1;
+          sprite.tint = 0x404652;
+        } else {
+          sprite.visible = false;
+        }
+      }
+    }
+    // 소품 — 보이는 셀 위에서만 표시
+    for (const p of this.propsOnMap) {
+      p.sprite.visible = this.fov.isVisible(p.x, p.y);
+    }
+    // 추적자 — 보이는 셀 위에서만 표시
+    this.stalker.visible = this.fov.isVisible(this.stalkerX, this.stalkerY);
+    // 플레이어는 항상 보임 (자기 자신)
+  }
+
+  // ============================================================================
+  // Map / cells
   // ============================================================================
   private get cols(): number {
     return this.cells[0]?.length ?? 0;
@@ -377,15 +500,35 @@ export class GameScene implements Scene {
 
   private maybeAnnounceTile(x: number, y: number): void {
     const id = this.tileAt(x, y);
+    const prop = this.propAt(x, y);
+    if (prop) {
+      const def = findProp(prop.id);
+      this.message.text = def?.kind === 'pickup'
+        ? `${def.name} — g 또는 e 로 주울 수 있다.`
+        : `${def?.name ?? prop.id} — e 로 살펴본다.`;
+      return;
+    }
     if (id === 'locker') this.message.text = '사물함. c 로 숨을 수 있다.';
     else if (id === 'desk-under') this.message.text = '책상 밑. c 로 숨을 수 있다.';
     else if (id === 'stairs-down') this.message.text = '계단 — > 로 내려갈 수 있다.';
     else if (id === 'exit') this.message.text = '비상구 — > 로 빠져나갈 수 있다.';
-    else if (id === 'door') this.message.text = '문이 열렸다.';
   }
 
   // ============================================================================
-  // 렌더 / 동기화
+  // Props
+  // ============================================================================
+  private propAt(x: number, y: number): PropInstance | null {
+    return this.propsOnMap.find((p) => p.x === x && p.y === y) ?? null;
+  }
+
+  private removePropFromMap(prop: PropInstance): void {
+    this.worldRoot.removeChild(prop.sprite);
+    prop.sprite.destroy();
+    this.propsOnMap = this.propsOnMap.filter((p) => p !== prop);
+  }
+
+  // ============================================================================
+  // Build / sync
   // ============================================================================
   private gridOrigin(): { x: number; y: number } {
     return {
@@ -396,7 +539,9 @@ export class GameScene implements Scene {
 
   private buildTileSprites(): void {
     const o = this.gridOrigin();
+    this.tileSprites = [];
     for (let y = 0; y < this.rows; y++) {
+      const row: Sprite[] = [];
       for (let x = 0; x < this.cols; x++) {
         const id = this.tileAt(x, y);
         const def = findTile(id);
@@ -406,8 +551,28 @@ export class GameScene implements Scene {
         sprite.height = CELL;
         sprite.x = o.x + x * CELL;
         sprite.y = o.y + y * CELL;
+        sprite.visible = false; // FOV 가 결정
         this.worldRoot.addChild(sprite);
+        row.push(sprite);
       }
+      this.tileSprites.push(row);
+    }
+  }
+
+  private buildPropSprites(spawns: Array<{ id: string; x: number; y: number }>): void {
+    const o = this.gridOrigin();
+    for (const p of spawns) {
+      const def = findProp(p.id);
+      if (!def) continue;
+      const tex = this.ctx.sprites.get(def.sprite);
+      const sprite = new Sprite(tex ?? undefined);
+      sprite.width = CELL;
+      sprite.height = CELL;
+      sprite.x = o.x + p.x * CELL;
+      sprite.y = o.y + p.y * CELL;
+      sprite.visible = false;
+      this.worldRoot.addChild(sprite);
+      this.propsOnMap.push({ id: p.id, x: p.x, y: p.y, sprite });
     }
   }
 
@@ -432,13 +597,63 @@ export class GameScene implements Scene {
     this.stalker.y = origin.y + this.stalkerY * CELL;
   }
 
+  // ============================================================================
+  // HUD
+  // ============================================================================
+  private buildHud(zoneName: string): void {
+    this.hudBg = new Graphics();
+    this.uiRoot.addChild(this.hudBg);
+
+    this.chapterTitle = new Text({
+      text: this.chapter.title,
+      style: { fill: COLOR.accent, fontSize: 18, fontFamily: FONT_BODY, fontWeight: '600' },
+    });
+    this.uiRoot.addChild(this.chapterTitle);
+
+    this.zoneName = new Text({
+      text: zoneName,
+      style: { fill: COLOR.fgMuted, fontSize: 13, fontFamily: FONT_BODY },
+    });
+    this.uiRoot.addChild(this.zoneName);
+
+    this.stateText = new Text({
+      text: '',
+      style: { fill: COLOR.fg, fontSize: 14, fontFamily: FONT_MONO, fontWeight: '600' },
+    });
+    this.uiRoot.addChild(this.stateText);
+
+    this.flashlightText = new Text({
+      text: '',
+      style: { fill: COLOR.fgMuted, fontSize: 14, fontFamily: FONT_MONO },
+    });
+    this.uiRoot.addChild(this.flashlightText);
+
+    this.inventoryText = new Text({
+      text: '',
+      style: { fill: COLOR.fgMuted, fontSize: 14, fontFamily: FONT_MONO },
+    });
+    this.uiRoot.addChild(this.inventoryText);
+
+    this.hint = new Text({
+      text: '↑↓←→ 이동   e 상호작용   c 은신   f 손전등   g 줍기   >  탈출   i 인벤   ? 코덱스   Esc 메뉴',
+      style: { fill: COLOR.fgDim, fontSize: 11, fontFamily: FONT_BODY },
+    });
+    this.hint.anchor.set(1, 0);
+    this.uiRoot.addChild(this.hint);
+
+    this.message = new Text({
+      text: this.chapter.intro,
+      style: { fill: COLOR.warn, fontSize: 14, fontFamily: FONT_BODY, fontStyle: 'italic' },
+    });
+    this.uiRoot.addChild(this.message);
+  }
+
   private layout(): void {
     const w = this.ctx.app.screen.width;
     const h = this.ctx.app.screen.height;
-
     this.hudBg.clear();
     this.hudBg.rect(0, 0, w, 56).fill({ color: COLOR.bgDeep, alpha: 0.85 });
-    this.hudBg.rect(0, h - 72, w, 72).fill({ color: COLOR.bgDeep, alpha: 0.85 });
+    this.hudBg.rect(0, h - 84, w, 84).fill({ color: COLOR.bgDeep, alpha: 0.85 });
 
     this.chapterTitle.x = 24;
     this.chapterTitle.y = 12;
@@ -449,13 +664,15 @@ export class GameScene implements Scene {
     this.hint.y = 18;
 
     this.stateText.x = 24;
-    this.stateText.y = h - 60;
+    this.stateText.y = h - 72;
     this.flashlightText.x = 24;
-    this.flashlightText.y = h - 36;
-    this.message.x = 280;
-    this.message.y = h - 48;
+    this.flashlightText.y = h - 50;
+    this.inventoryText.x = 24;
+    this.inventoryText.y = h - 28;
+    this.message.x = 320;
+    this.message.y = h - 60;
     this.message.style.wordWrap = true;
-    this.message.style.wordWrapWidth = Math.max(240, w - 280 - 24);
+    this.message.style.wordWrapWidth = Math.max(240, w - 320 - 24);
   }
 
   private renderHud(): void {
@@ -468,11 +685,12 @@ export class GameScene implements Scene {
     this.stateText.style.fill =
       this.state === 'spotted' ? COLOR.danger : this.state === 'hidden' ? COLOR.warn : COLOR.fg;
     this.flashlightText.text = `LIGHT  :  ${this.flashlightOn ? 'ON' : 'OFF'}`;
+    this.inventoryText.text = `BAG    :  ${this.inventory.size === 0 ? '(empty)' : [...this.inventory].map((id) => findProp(id)?.name ?? id).join(', ')}`;
   }
 }
 
 // ============================================================================
-// 맵 로더 — public/assets/maps/<name>.json fetch
+// Map loader
 // ============================================================================
 async function loadAuthoredMap(path: string): Promise<MapData | null> {
   const url = `${import.meta.env.BASE_URL}${path}`;
@@ -500,7 +718,6 @@ async function loadAuthoredMap(path: string): Promise<MapData | null> {
 }
 
 function makeFallbackRoom(): MapData {
-  // 18 × 11 빈 방, 외곽선만 벽.
   const cols = 18;
   const rows = 11;
   const cells: string[][] = [];

@@ -23,6 +23,7 @@ export interface EventMap {
   documentRead: { id: string };
   broadcastHeard: { id: string };
   signRead: { id: string };
+  flagSet: { id: string; value: boolean };
   // 진행
   pickup: { entity: number; prop: string };
   zoneExit: { fromZone: string; toZone: string | null; mode: 'descend' | 'escape' | 'loop' };
