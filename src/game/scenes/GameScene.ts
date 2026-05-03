@@ -329,13 +329,30 @@ export class GameScene implements Scene {
     }
     const here = this.tileAt(this.playerX, this.playerY);
     const tileDef = findTile(here);
-    if (tileDef?.hidesPlayer) {
-      this.state = 'hidden';
-      this.ctx.events.emit('hideEnter', { entity: 0, tile: here });
-      this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
-    } else {
+    if (!tileDef?.hidesPlayer) {
       this.message.text = '여기엔 숨을 곳이 없다.';
+      this.syncPlayer();
+      this.renderHud();
+      return;
     }
+    // 추적자 시야 안에서 숨는 행동은 들킨 행동 자체. 즉시 잡힘.
+    const distance = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
+    const seen = this.state === 'spotted' || distance <= this.stalkerDetectRange;
+    if (seen) {
+      this.endingTriggered = true;
+      this.ctx.events.emit('caught', { stalker: 1, player: 0, effect: 'death' });
+      this.message.text = '눈앞에서 문을 닫는 건 들키는 행동이었다.';
+      // narrative 가 caught → goEnding 을 fire 하지만 못 받으면 fallback.
+      setTimeout(() => {
+        if (this.endingTriggered && this.ctx.manager.current() === this) {
+          void this.ctx.manager.replace(new EndingScene({ endingId: 'caught' }));
+        }
+      }, 0);
+      return;
+    }
+    this.state = 'hidden';
+    this.ctx.events.emit('hideEnter', { entity: 0, tile: here });
+    this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
     this.syncPlayer();
     this.renderHud();
   }
