@@ -24,6 +24,7 @@ export interface GameSnapshot {
     battery: number;
     capacity: number;
   };
+  stalkerAggressive?: boolean;
   inventory: string[];
   narrative: {
     facts: string[];

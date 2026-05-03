@@ -94,6 +94,7 @@ export class GameScene implements Scene {
   private tileSprites: Sprite[][] = [];
   private detectionOverlay!: Graphics;
   private stalkerDetectRange = 4;
+  private stalkerAggressive = false;
   private fov!: FovSystem;
   private narrative!: NarrativeSystem;
   private endingUnsub: (() => void) | null = null;
@@ -335,24 +336,20 @@ export class GameScene implements Scene {
       this.renderHud();
       return;
     }
-    // 추적자 시야 안에서 숨는 행동은 들킨 행동 자체. 즉시 잡힘.
+    // 시야 안에서 숨음 — 들킨 채로 들어간 거니 추적자가 끈질기게 따라옴.
+    // 자연스러운 wander 시야 잃기 트릭이 통하지 않음. 사물함/책상까지 추적해서 catch.
+    // 단, 플레이어는 이동키로 빠져나가 도망칠 시간이 있음.
     const distance = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
     const seen = this.state === 'spotted' || distance <= this.stalkerDetectRange;
-    if (seen) {
-      this.endingTriggered = true;
-      this.ctx.events.emit('caught', { stalker: 1, player: 0, effect: 'death' });
-      this.message.text = '눈앞에서 문을 닫는 건 들키는 행동이었다.';
-      // narrative 가 caught → goEnding 을 fire 하지만 못 받으면 fallback.
-      setTimeout(() => {
-        if (this.endingTriggered && this.ctx.manager.current() === this) {
-          void this.ctx.manager.replace(new EndingScene({ endingId: 'caught' }));
-        }
-      }, 0);
-      return;
-    }
     this.state = 'hidden';
     this.ctx.events.emit('hideEnter', { entity: 0, tile: here });
-    this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
+    if (seen) {
+      this.stalkerAggressive = true;
+      this.ctx.events.emit('detected', { stalker: 1, player: 0 });
+      this.message.text = '들킨 채로 문을 닫았다. 발걸음이 빨라진다.';
+    } else {
+      this.message.text = '숨었다. 발걸음이 지나가길 기다린다.';
+    }
     this.syncPlayer();
     this.renderHud();
   }
@@ -420,7 +417,13 @@ export class GameScene implements Scene {
   // Stalker
   // ============================================================================
   private stepStalker(): void {
-    if (this.state === 'hidden') {
+    // 추적자 진정 체크: 플레이어가 시야 밖으로 충분히 멀어지면 기본 모드 복귀.
+    const distNow = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
+    if (this.stalkerAggressive && distNow > this.stalkerDetectRange + 3) {
+      this.stalkerAggressive = false;
+    }
+
+    if (this.state === 'hidden' && !this.stalkerAggressive) {
       this.wanderStalker();
     } else {
       const ddx = this.playerX - this.stalkerX;
@@ -476,13 +479,34 @@ export class GameScene implements Scene {
 
   private canStalkerStep(x: number, y: number): boolean {
     if (!this.isWalkable(x, y)) return false;
-    if (this.state === 'hidden' && x === this.playerX && y === this.playerY) return false;
+    // 평소: 은신한 플레이어 타일 점거 X. aggressive 면 사물함도 열어버림 (=catch).
+    if (
+      this.state === 'hidden' &&
+      !this.stalkerAggressive &&
+      x === this.playerX &&
+      y === this.playerY
+    ) {
+      return false;
+    }
     return true;
   }
 
   private evaluateContact(): void {
-    if (this.state === 'hidden') return;
     const distance = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
+    if (this.state === 'hidden') {
+      // aggressive 모드에서 추적자가 사물함 위에 올라옴 → 잡힘.
+      if (distance === 0) {
+        this.endingTriggered = true;
+        this.ctx.events.emit('caught', { stalker: 1, player: 0, effect: 'death' });
+        this.message.text = '문이 열렸다.';
+        setTimeout(() => {
+          if (this.endingTriggered && this.ctx.manager.current() === this) {
+            void this.ctx.manager.replace(new EndingScene({ endingId: 'caught' }));
+          }
+        }, 0);
+      }
+      return;
+    }
     const detect = this.stalkerDetectRange;
     if (distance <= CATCH_RANGE) {
       this.endingTriggered = true;
@@ -709,6 +733,7 @@ export class GameScene implements Scene {
         battery: this.flashlightBattery,
         capacity: this.flashlightCapacity,
       },
+      stalkerAggressive: this.stalkerAggressive,
       inventory: [...this.inventory],
       narrative: this.narrative.serialize(),
       fov: this.fov.serialize(),
@@ -731,6 +756,7 @@ export class GameScene implements Scene {
     this.flashlightOn = s.flashlight.on;
     this.flashlightBattery = s.flashlight.battery;
     this.flashlightCapacity = s.flashlight.capacity;
+    this.stalkerAggressive = s.stalkerAggressive ?? false;
     // 인벤토리 복원 + 그 위치의 맵 위 sprite 제거
     this.inventory = new Set(s.inventory);
     for (const id of s.inventory) {
@@ -752,6 +778,7 @@ export class GameScene implements Scene {
     const origin = this.gridOrigin();
     this.stalker.x = origin.x + this.stalkerX * CELL;
     this.stalker.y = origin.y + this.stalkerY * CELL;
+    this.stalker.tint = this.stalkerAggressive ? 0xff5552 : 0xffffff;
   }
 
   // ============================================================================
