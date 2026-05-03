@@ -83,7 +83,10 @@ export class GameScene implements Scene {
   private stalkerY = 1;
   private stalkerId = 'late-pupil';
   private state: State = 'safe';
+  private flashlightAcquired = false;
   private flashlightOn = false;
+  private flashlightBattery = 0;
+  private flashlightCapacity = 100;
   private stalkerAccumMs = 0;
   private endingTriggered = false;
   private inventory = new Set<string>();
@@ -100,6 +103,7 @@ export class GameScene implements Scene {
   private stalker!: Sprite;
   // UI
   private hudBg!: Graphics;
+  private batteryGauge!: Graphics;
   private chapterTitle!: Text;
   private zoneName!: Text;
   private stateText!: Text;
@@ -211,8 +215,22 @@ export class GameScene implements Scene {
     while (this.stalkerAccumMs >= STALKER_TICK_MS) {
       this.stalkerAccumMs -= STALKER_TICK_MS;
       this.stepStalker();
+      this.drainBattery();
       if (this.endingTriggered) return;
     }
+  }
+
+  private drainBattery(): void {
+    if (!this.flashlightOn) return;
+    this.flashlightBattery = Math.max(0, this.flashlightBattery - 1);
+    if (this.flashlightBattery === 0) {
+      this.flashlightOn = false;
+      this.ctx.events.emit('flashlightToggle', { on: false });
+      this.message.text = '배터리가 다 됐다.';
+      this.recomputeFov();
+      this.applyVisibility();
+    }
+    this.renderHud();
   }
 
   onIntent(intent: Intent): void {
@@ -229,7 +247,16 @@ export class GameScene implements Scene {
       case 'hide':
         return this.tryHide();
       case 'use':
+        if (!this.flashlightAcquired) {
+          this.message.text = '손전등이 없다.';
+          return;
+        }
+        if (!this.flashlightOn && this.flashlightBattery <= 0) {
+          this.message.text = '배터리가 다 됐다.';
+          return;
+        }
         this.flashlightOn = !this.flashlightOn;
+        this.ctx.events.emit('flashlightToggle', { on: this.flashlightOn });
         this.message.text = this.flashlightOn ? '손전등을 켰다.' : '손전등을 껐다.';
         this.recomputeFov();
         this.applyVisibility();
@@ -281,6 +308,7 @@ export class GameScene implements Scene {
     this.maybeAnnounceTile(nx, ny);
     this.evaluateContact();
     this.renderHud();
+    this.ctx.events.emit('step', { x: nx, y: ny });
   }
 
   private tryHide(): void {
@@ -335,6 +363,11 @@ export class GameScene implements Scene {
       this.inventory.add(prop.id);
       this.removePropFromMap(prop);
       this.message.text = `${def.name} 을(를) 주웠다.`;
+      if (def.effect.kind === 'light') {
+        this.flashlightAcquired = true;
+        this.flashlightCapacity = def.effect.battery ?? 100;
+        this.flashlightBattery = this.flashlightCapacity;
+      }
       this.ctx.events.emit('pickup', { entity: 0, prop: prop.id });
       this.renderHud();
       return;
@@ -611,7 +644,12 @@ export class GameScene implements Scene {
       player: { x: this.playerX, y: this.playerY, facing: this.playerFacing },
       stalker: { id: this.stalkerId, x: this.stalkerX, y: this.stalkerY },
       state: this.state,
-      flashlightOn: this.flashlightOn,
+      flashlight: {
+        acquired: this.flashlightAcquired,
+        on: this.flashlightOn,
+        battery: this.flashlightBattery,
+        capacity: this.flashlightCapacity,
+      },
       inventory: [...this.inventory],
       narrative: this.narrative.serialize(),
       fov: this.fov.serialize(),
@@ -630,7 +668,10 @@ export class GameScene implements Scene {
     this.stalkerX = s.stalker.x;
     this.stalkerY = s.stalker.y;
     this.state = s.state;
-    this.flashlightOn = s.flashlightOn;
+    this.flashlightAcquired = s.flashlight.acquired;
+    this.flashlightOn = s.flashlight.on;
+    this.flashlightBattery = s.flashlight.battery;
+    this.flashlightCapacity = s.flashlight.capacity;
     // 인벤토리 복원 + 그 위치의 맵 위 sprite 제거
     this.inventory = new Set(s.inventory);
     for (const id of s.inventory) {
@@ -660,6 +701,9 @@ export class GameScene implements Scene {
   private buildHud(zoneName: string): void {
     this.hudBg = new Graphics();
     this.uiRoot.addChild(this.hudBg);
+
+    this.batteryGauge = new Graphics();
+    this.uiRoot.addChild(this.batteryGauge);
 
     this.chapterTitle = new Text({
       text: this.chapter.title,
@@ -724,6 +768,8 @@ export class GameScene implements Scene {
     this.stateText.y = h - 72;
     this.flashlightText.x = 24;
     this.flashlightText.y = h - 50;
+    this.batteryGauge.x = 24 + 130;
+    this.batteryGauge.y = h - 50 + 6;
     this.inventoryText.x = 24;
     this.inventoryText.y = h - 28;
     this.message.x = 320;
@@ -741,8 +787,32 @@ export class GameScene implements Scene {
     this.stateText.text = stateLabel;
     this.stateText.style.fill =
       this.state === 'spotted' ? COLOR.danger : this.state === 'hidden' ? COLOR.warn : COLOR.fg;
-    this.flashlightText.text = `LIGHT  :  ${this.flashlightOn ? 'ON' : 'OFF'}`;
+
+    if (!this.flashlightAcquired) {
+      this.flashlightText.text = 'LIGHT  :  —';
+    } else {
+      this.flashlightText.text = `LIGHT  :  ${this.flashlightOn ? 'ON ' : 'OFF'}`;
+    }
+    this.renderBatteryGauge();
+
     this.inventoryText.text = `BAG    :  ${this.inventory.size === 0 ? '(empty)' : [...this.inventory].map((id) => findProp(id)?.name ?? id).join(', ')}`;
+  }
+
+  private renderBatteryGauge(): void {
+    this.batteryGauge.clear();
+    if (!this.flashlightAcquired) return;
+    const w = 96;
+    const h = 8;
+    const ratio = this.flashlightCapacity > 0
+      ? Math.max(0, Math.min(1, this.flashlightBattery / this.flashlightCapacity))
+      : 0;
+    const fillW = Math.round(w * ratio);
+    this.batteryGauge.rect(0, 0, w, h).fill({ color: COLOR.panel });
+    this.batteryGauge.rect(0, 0, w, h).stroke({ color: COLOR.panelBorder, width: 1 });
+    if (fillW > 0) {
+      const color = ratio > 0.5 ? 0xb6c560 : ratio > 0.2 ? 0xc8a868 : 0xc8666a;
+      this.batteryGauge.rect(0, 0, fillW, h).fill({ color });
+    }
   }
 }
 

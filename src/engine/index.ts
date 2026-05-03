@@ -34,3 +34,5 @@ export { Settings } from './settings';
 export type { SettingsState } from './settings';
 
 export { SpriteRegistry, hashColor } from './assets';
+
+export { AudioEngine } from './audio';

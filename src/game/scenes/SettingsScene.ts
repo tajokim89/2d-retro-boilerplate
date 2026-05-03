@@ -3,10 +3,8 @@
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
-import { FONT_BODY, COLOR, Settings } from '@/engine';
+import { FONT_BODY, COLOR } from '@/engine';
 import { Menu } from '../ui/menu';
-
-const settings = new Settings();
 
 export class SettingsScene implements Scene {
   private root = new Container();
@@ -61,7 +59,7 @@ export class SettingsScene implements Scene {
   }
 
   private buildItems() {
-    const s = settings.get();
+    const s = this.ctx.settings.get();
     return [
       { id: 'master', label: `마스터 볼륨    ${pct(s.masterVolume)}` },
       { id: 'music', label: `음악 볼륨      ${pct(s.musicVolume)}` },
@@ -74,6 +72,7 @@ export class SettingsScene implements Scene {
   }
 
   private handleSelect(id: string): void {
+    const settings = this.ctx.settings;
     const s = settings.get();
     switch (id) {
       case 'master':

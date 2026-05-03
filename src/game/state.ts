@@ -18,7 +18,12 @@ export interface GameSnapshot {
     y: number;
   };
   state: 'safe' | 'spotted' | 'hidden';
-  flashlightOn: boolean;
+  flashlight: {
+    acquired: boolean;
+    on: boolean;
+    battery: number;
+    capacity: number;
+  };
   inventory: string[];
   narrative: {
     facts: string[];

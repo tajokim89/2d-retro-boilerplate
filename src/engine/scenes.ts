@@ -9,6 +9,8 @@ import type { Container, Application } from 'pixi.js';
 import type { Input, Intent } from './input';
 import type { EventBus } from './events';
 import type { SpriteRegistry } from './assets';
+import type { Settings } from './settings';
+import type { AudioEngine } from './audio';
 
 export interface SceneContext {
   app: Application;
@@ -17,6 +19,8 @@ export interface SceneContext {
   input: Input;
   events: EventBus;
   sprites: SpriteRegistry;
+  settings: Settings;
+  audio: AudioEngine;
   manager: SceneManager;
 }
 

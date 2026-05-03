@@ -1,11 +1,21 @@
-// 앱 부팅 진입점. main.ts 가 이걸 호출.
-// 1) Renderer 만들고 (world + ui 두 레이어)
-// 2) SpriteRegistry 셋업: 모든 콘텐츠의 sprite id 마다 procedural placeholder 등록 → 진짜 spritesheet 시도
-// 3) Input + EventBus + SceneManager 묶고
-// 4) 첫 Scene = IntroScene 으로 시작
-// 5) ticker / resize 중계
+// 앱 부팅 진입점.
+// 1) Renderer (world + ui)
+// 2) Settings + AudioEngine — 단일 인스턴스, ctx 로 모든 Scene 에 전달
+// 3) SpriteRegistry — procedural placeholder + 진짜 spritesheet 시도
+// 4) Input + EventBus + SceneManager
+// 5) 첫 Scene = IntroScene
+// 6) AudioEngine 은 첫 사용자 제스처 후 활성화 (브라우저 자동재생 정책)
 
-import { Input, EventBus, SceneManager, SpriteRegistry, hashColor, createRenderer } from '@/engine';
+import {
+  Input,
+  EventBus,
+  SceneManager,
+  SpriteRegistry,
+  Settings,
+  AudioEngine,
+  hashColor,
+  createRenderer,
+} from '@/engine';
 import { tiles, stalkers, props } from '@/content';
 import { IntroScene } from './scenes/IntroScene';
 
@@ -18,28 +28,20 @@ export async function startApp(parent: HTMLElement): Promise<AppHandle> {
   const input = new Input();
   input.attach(window);
   const events = new EventBus();
+  const settings = new Settings();
+  const audio = new AudioEngine(events, settings);
+  audio.activateOnGesture();
 
-  // 1) procedural placeholder 등록 — 자산이 없어도 게임이 보이도록.
+  // SpriteRegistry — placeholder 등록 후 진짜 시트 시도.
   const sprites = new SpriteRegistry();
-  for (const t of tiles) {
-    sprites.registerProcedural(t.sprite, hashColor(t.id), t.id);
-  }
-  for (const s of stalkers) {
-    sprites.registerProcedural(s.sprite, 0x9a2a2a, s.id);
-  }
-  for (const p of props) {
-    sprites.registerProcedural(p.sprite, 0xc8a868, p.id);
-  }
-  // 플레이어 placeholder (4방향 단일 프레임씩)
+  for (const t of tiles) sprites.registerProcedural(t.sprite, hashColor(t.id), t.id);
+  for (const s of stalkers) sprites.registerProcedural(s.sprite, 0x9a2a2a, s.id);
+  for (const p of props) sprites.registerProcedural(p.sprite, 0xc8a868, p.id);
   sprites.registerProcedural('player-down-0', 0xfff2c2, 'P');
   sprites.registerProcedural('player-up-0', 0xfff2c2, 'P');
   sprites.registerProcedural('player-left-0', 0xfff2c2, 'P');
   sprites.registerProcedural('player-right-0', 0xfff2c2, 'P');
-
-  // 2) 진짜 spritesheet 가 있으면 덮어쓰기. 없으면 placeholder 유지.
-  await sprites.loadSpritesheet(
-    `${import.meta.env.BASE_URL}assets/sprites/main.json`,
-  );
+  await sprites.loadSpritesheet(`${import.meta.env.BASE_URL}assets/sprites/main.json`);
 
   events.on('message', ({ text, tone }) => {
     console.info(`[${tone ?? 'info'}] ${text}`);
@@ -52,6 +54,8 @@ export async function startApp(parent: HTMLElement): Promise<AppHandle> {
     input,
     events,
     sprites,
+    settings,
+    audio,
   });
 
   await manager.replace(new IntroScene());

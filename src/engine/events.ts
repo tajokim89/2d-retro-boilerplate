@@ -24,6 +24,9 @@ export interface EventMap {
   broadcastHeard: { id: string };
   signRead: { id: string };
   flagSet: { id: string; value: boolean };
+  // 자잘한 SFX 트리거
+  step: { x: number; y: number };
+  flashlightToggle: { on: boolean };
   // 진행
   pickup: { entity: number; prop: string };
   zoneExit: { fromZone: string; toZone: string | null; mode: 'descend' | 'escape' | 'loop' };
