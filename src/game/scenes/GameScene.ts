@@ -433,10 +433,13 @@ export class GameScene implements Scene {
 // 맵 로더 — public/assets/maps/<name>.json fetch
 // ============================================================================
 async function loadAuthoredMap(path: string): Promise<MapData | null> {
+  const url = `${import.meta.env.BASE_URL}${path}`;
   try {
-    const url = `${import.meta.env.BASE_URL}${path}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[mapLoader] HTTP ${res.status} fetching ${url} — falling back to empty room`);
+      return null;
+    }
     const json = (await res.json()) as {
       legend?: Record<string, string>;
       tiles: string[];
@@ -446,9 +449,10 @@ async function loadAuthoredMap(path: string): Promise<MapData | null> {
     const cells = json.tiles.map((row) =>
       row.split('').map((c) => legend[c] ?? 'floor'),
     );
+    console.info(`[mapLoader] loaded ${cells.length}x${cells[0]?.length ?? 0} from ${url}`);
     return { cells, spawns: json.spawns };
   } catch (err) {
-    console.warn(`[mapLoader] failed: ${path}`, err);
+    console.warn(`[mapLoader] error fetching ${url}`, err);
     return null;
   }
 }

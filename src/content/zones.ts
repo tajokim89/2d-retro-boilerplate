@@ -33,7 +33,7 @@ export const zones: ZoneDef[] = [
     id: 'zone-school-1f',
     name: '학교 1층 — 야간',
     generator: 'authored',
-    authoredMap: 'maps/zone-school-1f.json',
+    authoredMap: 'assets/maps/zone-school-1f.json',
     width: 30,
     height: 18,
     stalkerSpawns: [{ stalkerId: 'late-pupil', count: 1 }],
