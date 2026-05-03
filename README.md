@@ -79,6 +79,7 @@ docs/
 
 ## 다음 단계
 
+- 5분 안에 구조 파악 → [`docs/GUIDE.md`](./docs/GUIDE.md)
 - 자기 게임으로 만들려면 → [`CUSTOMIZE.md`](./CUSTOMIZE.md)
 - AI 에이전트(Claude Code, Codex)에게 작업 시키려면 → [`AGENTS.md`](./AGENTS.md)
 - 픽셀 아트 만들려면 → [`docs/image-prompts/`](./docs/image-prompts/)
