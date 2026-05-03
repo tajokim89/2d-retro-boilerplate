@@ -9,7 +9,7 @@
       :root {
         color-scheme: dark;
         --bg: #0a0b0f;
-        --fg: #d8d2c2;
+        --fg: #e8e4d8;
       }
       html, body {
         margin: 0;
@@ -18,7 +18,7 @@
         height: 100%;
         background: var(--bg);
         color: var(--fg);
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+        font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
         overflow: hidden;
       }
       #app {
@@ -26,13 +26,13 @@
         inset: 0;
         display: grid;
         place-items: center;
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
       }
-      #app canvas {
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
-      }
+      /*
+       * 캔버스 자체는 PIXI 가 디바이스 픽셀에 맞춰 1:1 로 렌더링한다.
+       * world 컨테이너(픽셀 아트)는 PIXI 안에서 정수배 스케일되어 nearest-neighbor.
+       * ui 컨테이너(텍스트)는 1:1 → 글자 크리스피.
+       * CSS image-rendering 은 따로 강제하지 않는다 (강제하면 안티앨리어싱된 텍스트가 깨짐).
+       */
     </style>
   </head>
   <body>

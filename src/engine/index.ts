@@ -15,6 +15,9 @@ export {
   TILE_SIZE,
   VIRTUAL_WIDTH,
   VIRTUAL_HEIGHT,
+  FONT_BODY,
+  FONT_MONO,
+  COLOR,
 } from './renderer';
 export type { RendererHandle } from './renderer';
 

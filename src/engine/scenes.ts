@@ -1,14 +1,18 @@
 // Scene + SceneManager. 화면 단위로 라이프사이클 관리.
-// push: 스택 위에 (이전 씬은 보존, 일시정지 메뉴 같은 것).
-// replace: 이전 씬 destroy 후 교체 (인트로→메인메뉴 같은 것).
-// pop: 현재 씬 destroy 후 직전으로.
+// 각 Scene 은 두 개의 컨테이너를 받음:
+//  - ctx.world : 정수배 스케일 (픽셀 아트용)
+//  - ctx.ui    : 네이티브 1:1 (텍스트/메뉴/HUD 용)
+//
+// 텍스트는 반드시 ui 에. 픽셀 스프라이트/타일은 world 에.
 
-import type { Container } from 'pixi.js';
+import type { Container, Application } from 'pixi.js';
 import type { Input, Intent } from './input';
 import type { EventBus } from './events';
 
 export interface SceneContext {
-  stage: Container;
+  app: Application;
+  world: Container;
+  ui: Container;
   input: Input;
   events: EventBus;
   manager: SceneManager;

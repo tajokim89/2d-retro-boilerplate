@@ -1,13 +1,14 @@
-// 수직 메뉴 위젯. 메인메뉴/일시정지/설정 화면 모두 동일한 위젯 사용.
-// PIXI Text 로 그림. 위/아래 키로 선택, Enter/Space 로 confirm, Esc/Tab 로 cancel.
+// 수직 메뉴 위젯 — UI 레이어용 (네이티브 해상도, 크리스피 텍스트).
+// 위/아래 키로 선택, Enter/Space 로 confirm, Esc/Tab 로 cancel.
 //
 // 사용:
-//   const menu = new Menu({ items: [{ id: 'new', label: '새로시작' }, ...] });
-//   menu.onSelect((id) => ...);
-//   stage.addChild(menu.view);
+//   const menu = new Menu({ items: [...], onSelect, onCancel });
+//   ctx.ui.addChild(menu.view);
+//   menu.layout({ centerX: app.screen.width / 2, top: 240 });
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { Intent } from '@/engine';
+import { FONT_BODY, COLOR } from '@/engine';
 
 export interface MenuItem {
   id: string;
@@ -17,11 +18,11 @@ export interface MenuItem {
 
 export interface MenuOptions {
   items: MenuItem[];
-  x?: number;
-  y?: number;
   width?: number;
   itemHeight?: number;
   fontSize?: number;
+  paddingX?: number;
+  paddingY?: number;
 }
 
 export class Menu {
@@ -37,22 +38,26 @@ export class Menu {
   constructor(options: MenuOptions) {
     this.items = options.items;
     this.opts = {
-      x: options.x ?? 0,
-      y: options.y ?? 0,
-      width: options.width ?? 140,
-      itemHeight: options.itemHeight ?? 14,
-      fontSize: options.fontSize ?? 10,
+      width: options.width ?? 280,
+      itemHeight: options.itemHeight ?? 32,
+      fontSize: options.fontSize ?? 18,
+      paddingX: options.paddingX ?? 20,
+      paddingY: options.paddingY ?? 12,
     };
-    this.view.x = this.opts.x;
-    this.view.y = this.opts.y;
     this.view.addChild(this.bg);
     this.build();
-    this.render();
 
-    // 첫 번째 활성 항목 자동 선택
     const firstEnabled = this.items.findIndex((it) => it.enabled !== false);
     this.index = firstEnabled === -1 ? 0 : firstEnabled;
     this.render();
+  }
+
+  /**
+   * 메뉴 위치 잡기. centerX 중심, top 부터 아래로.
+   */
+  layout({ centerX, top }: { centerX: number; top: number }): void {
+    this.view.x = Math.round(centerX - this.opts.width / 2);
+    this.view.y = Math.round(top);
   }
 
   setItems(items: MenuItem[]): void {
@@ -96,24 +101,26 @@ export class Menu {
   }
 
   private build(): void {
-    const { itemHeight, fontSize, width } = this.opts;
+    const { itemHeight, fontSize, width, paddingX, paddingY } = this.opts;
     this.items.forEach((item, i) => {
       const text = new Text({
         text: item.label,
         style: {
-          fill: '#d8d2c2',
+          fill: COLOR.fg,
           fontSize,
-          fontFamily: 'monospace',
+          fontFamily: FONT_BODY,
+          fontWeight: '500',
         },
       });
-      text.x = 8;
-      text.y = i * itemHeight + 2;
+      text.x = paddingX;
+      text.y = paddingY + i * itemHeight + Math.round((itemHeight - fontSize) / 2);
       this.view.addChild(text);
       this.texts.push(text);
     });
-    const totalH = this.items.length * itemHeight + 8;
-    this.bg.rect(0, 0, width, totalH).fill({ color: 0x14161c, alpha: 0.85 });
-    this.bg.rect(0, 0, width, totalH).stroke({ color: 0x3a4150, width: 1 });
+    const totalH = paddingY * 2 + this.items.length * itemHeight;
+    this.bg.clear();
+    this.bg.rect(0, 0, width, totalH).fill({ color: COLOR.panel, alpha: 0.92 });
+    this.bg.rect(0, 0, width, totalH).stroke({ color: COLOR.panelBorder, width: 1, alpha: 1 });
   }
 
   private move(dir: 1 | -1): void {
@@ -131,8 +138,8 @@ export class Menu {
       if (!item) return;
       const isSelected = i === this.index;
       const isEnabled = item.enabled !== false;
-      text.text = `${isSelected ? '> ' : '  '}${item.label}`;
-      text.style.fill = !isEnabled ? '#5a5a5a' : isSelected ? '#fff7d6' : '#d8d2c2';
+      text.text = `${isSelected ? '▶  ' : '    '}${item.label}`;
+      text.style.fill = !isEnabled ? COLOR.fgDim : isSelected ? COLOR.accent : COLOR.fg;
     });
   }
 }

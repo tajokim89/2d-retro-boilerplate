@@ -1,9 +1,8 @@
-// 엔딩 화면. content/narrative/endings.ts 에서 텍스트 가져옴.
-// 키 입력 시 메인메뉴로.
+// 엔딩 화면. 모두 ui 레이어.
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
-import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/engine';
+import { FONT_BODY, COLOR } from '@/engine';
 import { endings } from '@/content/narrative/endings';
 import { MainMenuScene } from './MainMenuScene';
 
@@ -14,60 +13,77 @@ export interface EndingSceneOptions {
 export class EndingScene implements Scene {
   private root = new Container();
   private ctx!: SceneContext;
+  private bg!: Graphics;
+  private title!: Text;
+  private body!: Text;
+  private hint!: Text;
 
   constructor(private options: EndingSceneOptions) {}
 
   async enter(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
-    ctx.stage.addChild(this.root);
+    ctx.ui.addChild(this.root);
 
     const ending = endings.find((e) => e.id === this.options.endingId) ?? endings[0]!;
 
-    const bg = new Graphics();
-    bg.rect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT).fill(0x05060a);
-    this.root.addChild(bg);
+    this.bg = new Graphics();
+    this.root.addChild(this.bg);
 
-    const title = new Text({
+    this.title = new Text({
       text: ending.title,
-      style: { fill: '#fff7d6', fontSize: 14, fontFamily: 'monospace' },
+      style: { fill: COLOR.accent, fontSize: 36, fontFamily: FONT_BODY, fontWeight: '700' },
     });
-    title.anchor.set(0.5);
-    title.x = VIRTUAL_WIDTH / 2;
-    title.y = 60;
-    this.root.addChild(title);
+    this.title.anchor.set(0.5);
+    this.root.addChild(this.title);
 
-    const body = new Text({
+    this.body = new Text({
       text: ending.body,
       style: {
-        fill: '#9aa0aa',
-        fontSize: 9,
-        fontFamily: 'monospace',
+        fill: COLOR.fgMuted,
+        fontSize: 17,
+        fontFamily: FONT_BODY,
         align: 'center',
         wordWrap: true,
-        wordWrapWidth: VIRTUAL_WIDTH - 48,
+        lineHeight: 26,
       },
     });
-    body.anchor.set(0.5, 0);
-    body.x = VIRTUAL_WIDTH / 2;
-    body.y = 88;
-    this.root.addChild(body);
+    this.body.anchor.set(0.5, 0);
+    this.root.addChild(this.body);
 
-    const hint = new Text({
+    this.hint = new Text({
       text: '— 아무 키나 눌러 메인메뉴로 —',
-      style: { fill: '#5a6068', fontSize: 8, fontFamily: 'monospace' },
+      style: { fill: COLOR.fgDim, fontSize: 13, fontFamily: FONT_BODY },
     });
-    hint.anchor.set(0.5);
-    hint.x = VIRTUAL_WIDTH / 2;
-    hint.y = VIRTUAL_HEIGHT - 16;
-    this.root.addChild(hint);
+    this.hint.anchor.set(0.5);
+    this.root.addChild(this.hint);
+
+    this.layout();
   }
 
   exit(): void {
-    this.ctx.stage.removeChild(this.root);
+    this.ctx.ui.removeChild(this.root);
     this.root.destroy({ children: true });
   }
 
   onIntent(_intent: Intent): void {
     void this.ctx.manager.replace(new MainMenuScene());
+  }
+
+  onResize(): void {
+    this.layout();
+  }
+
+  private layout(): void {
+    const w = this.ctx.app.screen.width;
+    const h = this.ctx.app.screen.height;
+    this.bg.clear();
+    this.bg.rect(0, 0, w, h).fill(COLOR.bgDeep);
+    this.title.x = w / 2;
+    this.title.y = Math.round(h * 0.32);
+    this.body.x = w / 2;
+    this.body.y = Math.round(h * 0.32) + 60;
+    this.body.style.wordWrapWidth = Math.min(w - 96, 760);
+    this.hint.x = w / 2;
+    this.hint.y = h - 32;
   }
 }

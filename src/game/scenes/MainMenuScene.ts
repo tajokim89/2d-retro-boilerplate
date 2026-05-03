@@ -1,10 +1,9 @@
 // 메인메뉴: 새로시작 / 불러오기 / 환경설정 / 종료.
-// '불러오기' 는 저장 슬롯이 하나라도 있을 때만 활성화.
-// '종료' 는 웹에선 confirm 한 번 띄우고 about:blank 로.
+// 모두 ui 레이어 — 크리스피 텍스트.
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
-import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, hasAnySave } from '@/engine';
+import { FONT_BODY, COLOR, hasAnySave } from '@/engine';
 import { Menu } from '../ui/menu';
 import { TutorialScene } from './TutorialScene';
 import { SettingsScene } from './SettingsScene';
@@ -12,33 +11,31 @@ import { SettingsScene } from './SettingsScene';
 export class MainMenuScene implements Scene {
   private root = new Container();
   private menu!: Menu;
+  private bg!: Graphics;
+  private title!: Text;
+  private subtitle!: Text;
   private ctx!: SceneContext;
 
   async enter(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
-    ctx.stage.addChild(this.root);
+    ctx.ui.addChild(this.root);
 
-    const bg = new Graphics();
-    bg.rect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT).fill(0x0a0b0f);
-    this.root.addChild(bg);
+    this.bg = new Graphics();
+    this.root.addChild(this.bg);
 
-    const title = new Text({
+    this.title = new Text({
       text: 'retro-napolitan',
-      style: { fill: '#fff7d6', fontSize: 18, fontFamily: 'monospace' },
+      style: { fill: COLOR.accent, fontSize: 44, fontFamily: FONT_BODY, fontWeight: '700' },
     });
-    title.anchor.set(0.5, 0);
-    title.x = VIRTUAL_WIDTH / 2;
-    title.y = 32;
-    this.root.addChild(title);
+    this.title.anchor.set(0.5, 0);
+    this.root.addChild(this.title);
 
-    const subtitle = new Text({
-      text: 'a roguelike boilerplate',
-      style: { fill: '#5a6068', fontSize: 8, fontFamily: 'monospace' },
+    this.subtitle = new Text({
+      text: 'a 2d pixel horror exploration boilerplate',
+      style: { fill: COLOR.fgDim, fontSize: 14, fontFamily: FONT_BODY },
     });
-    subtitle.anchor.set(0.5, 0);
-    subtitle.x = VIRTUAL_WIDTH / 2;
-    subtitle.y = 54;
-    this.root.addChild(subtitle);
+    this.subtitle.anchor.set(0.5, 0);
+    this.root.addChild(this.subtitle);
 
     this.menu = new Menu({
       items: [
@@ -47,21 +44,36 @@ export class MainMenuScene implements Scene {
         { id: 'settings', label: '환경설정' },
         { id: 'quit', label: '종료' },
       ],
-      x: Math.floor((VIRTUAL_WIDTH - 140) / 2),
-      y: 100,
     });
     this.root.addChild(this.menu.view);
-
     this.menu.onSelect((id) => this.handleSelect(id));
+
+    this.layout();
   }
 
   exit(): void {
-    this.ctx.stage.removeChild(this.root);
+    this.ctx.ui.removeChild(this.root);
     this.root.destroy({ children: true });
   }
 
   onIntent(intent: Intent): void {
     this.menu.handleIntent(intent);
+  }
+
+  onResize(): void {
+    this.layout();
+  }
+
+  private layout(): void {
+    const w = this.ctx.app.screen.width;
+    const h = this.ctx.app.screen.height;
+    this.bg.clear();
+    this.bg.rect(0, 0, w, h).fill(COLOR.bg);
+    this.title.x = w / 2;
+    this.title.y = Math.round(h * 0.22);
+    this.subtitle.x = w / 2;
+    this.subtitle.y = Math.round(h * 0.22) + 56;
+    this.menu.layout({ centerX: w / 2, top: Math.round(h * 0.5) });
   }
 
   private handleSelect(id: string): void {
@@ -70,14 +82,12 @@ export class MainMenuScene implements Scene {
         void this.ctx.manager.replace(new TutorialScene());
         break;
       case 'load':
-        // TODO: 슬롯 선택 화면. 보일러플레이트에선 가장 최근 슬롯으로 바로 진입.
         void this.ctx.manager.replace(new TutorialScene());
         break;
       case 'settings':
         void this.ctx.manager.push(new SettingsScene());
         break;
       case 'quit':
-        // 웹 환경: 빈 화면으로 보내거나 탭 닫기 안내.
         if (confirm('정말 종료하시겠습니까?')) {
           window.location.replace('about:blank');
         }
