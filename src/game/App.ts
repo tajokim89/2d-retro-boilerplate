@@ -13,6 +13,8 @@ import {
   SpriteRegistry,
   Settings,
   AudioEngine,
+  GamepadInput,
+  TouchControls,
   hashColor,
   createRenderer,
 } from '@/engine';
@@ -58,9 +60,14 @@ export async function startApp(parent: HTMLElement): Promise<AppHandle> {
     audio,
   });
 
+  // 추가 입력원 — 같은 Input 인스턴스에 Intent 를 trigger.
+  const gamepad = new GamepadInput(input);
+  const touch = new TouchControls(input);
+
   await manager.replace(new IntroScene());
 
   renderer.app.ticker.add((ticker) => {
+    gamepad.poll();
     manager.update(ticker.deltaMS);
   });
   renderer.app.renderer.on('resize', () => {
@@ -71,6 +78,7 @@ export async function startApp(parent: HTMLElement): Promise<AppHandle> {
     destroy() {
       input.detach(window);
       events.clear();
+      touch.destroy();
       renderer.destroy();
     },
   };

@@ -71,6 +71,14 @@ export class Input {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * 키보드 외 입력원(게임패드/터치) 이 Intent 를 직접 발행할 때 사용.
+   * 모든 listener 에게 즉시 전달.
+   */
+  trigger(intent: Intent): void {
+    for (const listener of this.listeners) listener(intent);
+  }
+
   isDown(key: string): boolean {
     return this.down.has(key);
   }

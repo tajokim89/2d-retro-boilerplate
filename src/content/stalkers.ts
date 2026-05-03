@@ -33,7 +33,7 @@ export const stalkers: StalkerDef[] = [
     name: '늦은 학생',
     sprite: 'stalker-late-pupil',
     speed: 80,
-    detectionRange: 6,
+    detectionRange: 4,
     loseInterestRange: 10,
     hearing: 4,
     behavior: 'wander',

@@ -33,6 +33,63 @@
        * ui 컨테이너(텍스트)는 1:1 → 글자 크리스피.
        * CSS image-rendering 은 따로 강제하지 않는다 (강제하면 안티앨리어싱된 텍스트가 깨짐).
        */
+
+      /* 터치 가상 컨트롤러 — coarse pointer 디바이스에서만 표시. */
+      #touch-controls {
+        display: none;
+        position: fixed;
+        bottom: 12px;
+        left: 12px;
+        right: 12px;
+        z-index: 10;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+        font-family: ui-monospace, Consolas, monospace;
+      }
+      @media (pointer: coarse) {
+        #touch-controls {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          pointer-events: auto;
+        }
+      }
+      #touch-controls button {
+        background: rgba(20, 22, 28, 0.65);
+        border: 1px solid #3a4150;
+        color: #e8e4d8;
+        font-size: 18px;
+        font-weight: 600;
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        cursor: pointer;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+        backdrop-filter: blur(2px);
+      }
+      #touch-controls button:active {
+        background: rgba(60, 70, 90, 0.9);
+        color: #fff7d6;
+        border-color: #fff7d6;
+      }
+      #touch-controls .dpad {
+        display: grid;
+        grid-template-columns: repeat(3, 56px);
+        grid-template-rows: repeat(3, 56px);
+        gap: 6px;
+      }
+      #touch-controls .dpad-up    { grid-column: 2; grid-row: 1; }
+      #touch-controls .dpad-left  { grid-column: 1; grid-row: 2; }
+      #touch-controls .dpad-right { grid-column: 3; grid-row: 2; }
+      #touch-controls .dpad-down  { grid-column: 2; grid-row: 3; }
+      #touch-controls .actions {
+        display: grid;
+        grid-template-columns: repeat(2, 56px);
+        grid-auto-rows: 56px;
+        gap: 6px;
+      }
     </style>
   </head>
   <body>

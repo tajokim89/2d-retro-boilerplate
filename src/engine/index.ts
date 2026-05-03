@@ -36,3 +36,6 @@ export type { SettingsState } from './settings';
 export { SpriteRegistry, hashColor } from './assets';
 
 export { AudioEngine } from './audio';
+
+export { GamepadInput } from './gamepad';
+export { TouchControls } from './touch';

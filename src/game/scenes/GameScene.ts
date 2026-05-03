@@ -92,6 +92,8 @@ export class GameScene implements Scene {
   private inventory = new Set<string>();
   private propsOnMap: PropInstance[] = [];
   private tileSprites: Sprite[][] = [];
+  private detectionOverlay!: Graphics;
+  private stalkerDetectRange = 4;
   private fov!: FovSystem;
   private narrative!: NarrativeSystem;
   private endingUnsub: (() => void) | null = null;
@@ -151,9 +153,12 @@ export class GameScene implements Scene {
 
     // === World sprites ===
     this.buildTileSprites();
+    this.detectionOverlay = new Graphics();
+    this.worldRoot.addChild(this.detectionOverlay);
     this.buildPropSprites(mapData.spawns.props ?? []);
 
     const stalkerDef = findStalker(this.stalkerId);
+    this.stalkerDetectRange = stalkerDef?.detectionRange ?? DETECT_RANGE;
     this.stalker = makeAnimatedOrStatic(
       ctx,
       stalkerDef ? `${stalkerDef.sprite}-idle` : null,
@@ -461,6 +466,7 @@ export class GameScene implements Scene {
   private evaluateContact(): void {
     if (this.state === 'hidden') return;
     const distance = Math.abs(this.playerX - this.stalkerX) + Math.abs(this.playerY - this.stalkerY);
+    const detect = this.stalkerDetectRange;
     if (distance <= CATCH_RANGE) {
       this.endingTriggered = true;
       this.ctx.events.emit('caught', { stalker: 1, player: 0, effect: 'death' });
@@ -473,7 +479,7 @@ export class GameScene implements Scene {
       }, 0);
       return;
     }
-    if (distance <= DETECT_RANGE) {
+    if (distance <= detect) {
       if (this.state !== 'spotted') {
         this.ctx.events.emit('detected', { stalker: 1, player: 0 });
         this.message.text = '들켰다. 발걸음이 멈췄다.';
@@ -523,7 +529,34 @@ export class GameScene implements Scene {
     }
     // 추적자 — 보이는 셀 위에서만 표시
     this.stalker.visible = this.fov.isVisible(this.stalkerX, this.stalkerY);
+    // 시야 오버레이 갱신
+    this.renderDetectionOverlay();
     // 플레이어는 항상 보임 (자기 자신)
+  }
+
+  private renderDetectionOverlay(): void {
+    const o = this.gridOrigin();
+    this.detectionOverlay.clear();
+    if (!this.fov.isVisible(this.stalkerX, this.stalkerY)) return;
+
+    const range = this.stalkerDetectRange;
+    const isSpotted = this.state === 'spotted';
+    const color = isSpotted ? 0xff5552 : 0xc8666a;
+    const alpha = isSpotted ? 0.32 : 0.13;
+
+    for (let dy = -range; dy <= range; dy++) {
+      for (let dx = -range; dx <= range; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) > range) continue;
+        const cx = this.stalkerX + dx;
+        const cy = this.stalkerY + dy;
+        if (cx < 0 || cy < 0 || cx >= this.cols || cy >= this.rows) continue;
+        if (!this.fov.isVisible(cx, cy)) continue;
+        if (!this.isWalkable(cx, cy)) continue;
+        this.detectionOverlay
+          .rect(o.x + cx * CELL, o.y + cy * CELL, CELL, CELL)
+          .fill({ color, alpha });
+      }
+    }
   }
 
   // ============================================================================
