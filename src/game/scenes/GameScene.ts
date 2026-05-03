@@ -18,7 +18,7 @@
 //   5) 추적자 자율 (ticker accum 700ms) → wander when hidden / chase otherwise
 //   6) 잡힘 → caught 엔딩, 탈출 → escape 엔딩
 
-import { Container, Graphics, Sprite, Text } from 'pixi.js';
+import { AnimatedSprite, Container, Graphics, Sprite, Text } from 'pixi.js';
 import type { Scene, SceneContext, Intent } from '@/engine';
 import { FONT_BODY, FONT_MONO, COLOR, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/engine';
 import { chapters } from '@/content/narrative/chapters';
@@ -154,14 +154,16 @@ export class GameScene implements Scene {
     this.buildPropSprites(mapData.spawns.props ?? []);
 
     const stalkerDef = findStalker(this.stalkerId);
-    const stalkerTex = stalkerDef ? ctx.sprites.get(stalkerDef.sprite) : null;
-    this.stalker = new Sprite(stalkerTex ?? undefined);
+    this.stalker = makeAnimatedOrStatic(
+      ctx,
+      stalkerDef ? `${stalkerDef.sprite}-idle` : null,
+      stalkerDef?.sprite,
+    );
     this.stalker.width = CELL;
     this.stalker.height = CELL;
     this.worldRoot.addChild(this.stalker);
 
-    const playerTex = ctx.sprites.get('player-down-0');
-    this.player = new Sprite(playerTex ?? undefined);
+    this.player = makeAnimatedOrStatic(ctx, 'player-idle-down', 'player-down-0');
     this.player.width = CELL;
     this.player.height = CELL;
     this.worldRoot.addChild(this.player);
@@ -629,6 +631,13 @@ export class GameScene implements Scene {
     if (Math.abs(dx) >= Math.abs(dy)) dir = dx < 0 ? 'left' : dx > 0 ? 'right' : 'down';
     else dir = dy < 0 ? 'up' : 'down';
     this.playerFacing = dir;
+    // 애니메이션이 있으면 textures 교체. 없으면 정적 texture.
+    const frames = this.ctx.sprites.getAnimation(`player-idle-${dir}`);
+    if (this.player instanceof AnimatedSprite && frames && frames.length > 0) {
+      this.player.textures = frames;
+      this.player.play();
+      return;
+    }
     const tex = this.ctx.sprites.get(`player-${dir}-0`);
     if (tex) this.player.texture = tex;
   }
@@ -842,6 +851,26 @@ async function loadAuthoredMap(path: string): Promise<MapData | null> {
     console.warn(`[mapLoader] error fetching ${url}`, err);
     return null;
   }
+}
+
+// Aseprite frameTag 가 있으면 AnimatedSprite, 없으면 정적 Sprite. 둘 다 Sprite 의 자식 타입.
+function makeAnimatedOrStatic(
+  ctx: SceneContext,
+  animName: string | null,
+  fallbackFrame: string | undefined,
+): Sprite {
+  if (animName) {
+    const frames = ctx.sprites.getAnimation(animName);
+    if (frames && frames.length > 1) {
+      const a = new AnimatedSprite(frames);
+      a.animationSpeed = 0.08;
+      a.loop = true;
+      a.play();
+      return a;
+    }
+  }
+  const tex = fallbackFrame ? ctx.sprites.get(fallbackFrame) : null;
+  return new Sprite(tex ?? undefined);
 }
 
 function makeFallbackRoom(): MapData {

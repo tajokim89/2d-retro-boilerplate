@@ -19,30 +19,45 @@ import { Assets, Spritesheet, Texture } from 'pixi.js';
 
 export class SpriteRegistry {
   private textures = new Map<string, Texture>();
+  private animations = new Map<string, Texture[]>();
 
   /** 외부 spritesheet 로드. 실패해도 throw 안 하고 false 리턴 (placeholder 유지). */
   async loadSpritesheet(url: string): Promise<boolean> {
     try {
       const sheet = await Assets.load<Spritesheet>(url);
-      const sheetTextures = sheet.textures;
-      let count = 0;
-      for (const name in sheetTextures) {
-        const tex = sheetTextures[name];
+      let frameCount = 0;
+      for (const name in sheet.textures) {
+        const tex = sheet.textures[name];
         if (tex) {
           tex.source.scaleMode = 'nearest';
           this.textures.set(name, tex);
-          count += 1;
+          frameCount += 1;
         }
       }
-      console.info(`[assets] loaded ${count} frames from ${url}`);
-      return count > 0;
+      // Aseprite frameTags 는 sheet.animations 에 들어옴.
+      let animCount = 0;
+      const anims = sheet.animations as Record<string, Texture[]> | undefined;
+      if (anims) {
+        for (const name in anims) {
+          const frames = anims[name];
+          if (frames && frames.length > 0) {
+            for (const t of frames) t.source.scaleMode = 'nearest';
+            this.animations.set(name, frames);
+            animCount += 1;
+          }
+        }
+      }
+      console.info(
+        `[assets] loaded ${frameCount} frames + ${animCount} animations from ${url}`,
+      );
+      return frameCount > 0;
     } catch (err) {
       console.info(`[assets] no spritesheet at ${url} — using procedural placeholders`);
       return false;
     }
   }
 
-  /** procedural placeholder 등록. 같은 이름이 이미 있으면 (진짜 자산이 들어간 경우) 덮어쓰지 않음. */
+  /** procedural placeholder 등록. 같은 이름이 이미 있으면 덮어쓰지 않음. */
   registerProcedural(name: string, color: number, label?: string): void {
     if (this.textures.has(name)) return;
     const texture = createProceduralTexture(color, label);
@@ -56,6 +71,14 @@ export class SpriteRegistry {
 
   has(name: string): boolean {
     return this.textures.has(name);
+  }
+
+  getAnimation(name: string): Texture[] | null {
+    return this.animations.get(name) ?? null;
+  }
+
+  hasAnimation(name: string): boolean {
+    return this.animations.has(name);
   }
 
   list(): string[] {
